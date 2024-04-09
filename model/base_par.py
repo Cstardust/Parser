@@ -67,7 +67,7 @@ class DepParser(nn.Module):
         self.mlp_arc_head = NonLinear(in_features=self.encoder.out_size,      # 500
                                       out_features=mlp_arc_size+mlp_rel_size,           # 500 + 500 = 1000
                                       activation=nn.LeakyReLU(0.1))
-        # BiLSTM TEST
+        # BiLSTM TEST 
 
 
         # # MLP输出的特征向量拆分成多少份
