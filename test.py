@@ -9,16 +9,16 @@ from transformers import AutoTokenizer
 from torch.utils.data import Dataset, DataLoader
 
 from model.base_par import DepParser
-from data_helper import Dependency, ConllDataset, load_annoted, InterDataset, load_codt_signal
+from data_helper import Dependency, ConllDataset, load_annoted, InterDataset, load_codt_signal, DialogDataset
 from utils import uas_las, seed_everything, to_cuda, arc_rel_loss, inner_inter_uas_las
 import logging, datetime
 import argparse
-
+import os
 
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--dev_file', type=str, default='./data/use_test.conll')
-    parser.add_argument('--plm', type=str, default='./plm/bge-large-zh')
+    parser.add_argument('--plm', type=str, default='./plm/chinese-electra-180g-base-discriminator')
     parser.add_argument('--random_seed', type=int, default=42)
     parser.add_argument('--batch_size', type=int, default=128)
     parser.add_argument('--dropout', type=float, default=0.2)
@@ -28,11 +28,11 @@ def parse_args():
     parser.add_argument('--cuda', type=bool, default=True)
     parser.add_argument('--fp16', type=bool, default=True)
     parser.add_argument('--res_dir', type=str, default='results_v0')
+    parser.add_argument('--data_file', type=str, default='./data/test.json')
     args = parser.parse_args()
     return args
 
 CFG = parse_args()
-
 seed_everything(CFG.random_seed)  # 设置随机种子
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -42,14 +42,19 @@ logger = logging.getLogger("logger")
 logger.setLevel(logging.INFO)
 fh = logging.FileHandler(filename=f"./{CFG.res_dir}/test.log", mode='a')
 logger.addHandler(fh)
-
 time_now = datetime.datetime.now().isoformat()
-print(time_now)
 logger.info(f'=-=-=-=-=-=-=-=-={time_now}=-=-=-=-=-=-=-=-=-=')
+
+save_file = "./{}/test_save.txt".format(CFG.res_dir)
+print(save_file)
+if not os.path.exists(save_file):
+    with open(save_file, 'a'):
+        os.utime(save_file, None)
 
 tokenizer = AutoTokenizer.from_pretrained(CFG.plm)
 CFG.tokenizer = tokenizer
 
+# test0
 # 加载test数据
 def load_conll(data_file: str, train_mode=False):
     sentence: List[Dependency] = []
@@ -70,6 +75,10 @@ def load_conll(data_file: str, train_mode=False):
 
 test_dataset = ConllDataset(CFG, load_fn=load_conll, train=False)
 test_dataloader = DataLoader(test_dataset, batch_size=CFG.batch_size)
+# test1
+# test_dataset = DialogDataset(CFG, data_file=CFG.data_file, data_ids=list(range(800)))
+# test_dataloader = DataLoader(test_dataset, batch_size=CFG.batch_size)
+
 
 model = DepParser(CFG)  # 创建依存解析器模型
 # 加载Best Checkpoint
@@ -204,17 +213,28 @@ for step, batch in enumerate(tqdm(test_dataloader, desc="Inference Progress")):
     avg_loss += loss.item() * len(heads)  # times the batch size of data
 
 # 计算相关指标
+metrics = uas_las(arc_logit_whole, rel_logit_whole, head_whole, rel_whole, mask_whole)
+print('metrics 0', metrics)
+avg_loss /= len(test_dataloader.dataset)
+results = [CFG.plm, round(avg_loss,4), metrics['UAS'], metrics['LAS']]
+results = [str(x) for x in results]
+with open(save_file, "a+") as f:
+    f.write(",".join(results) + "\n")
+
+# ####################################################################
+
 metrics = inner_inter_uas_las(arc_logit_whole, rel_logit_whole, head_whole, rel_whole,
                   mask_whole)
+print('metrics 1', metrics)
+
 inter_uas, inner_uas,inter_las,inner_las = metrics['Inter-UAS'], metrics['Inner-UAS'],metrics['Inter-LAS'], metrics['Inner-LAS']
 
-avg_loss /= len(test_dataloader.dataset)  # type: ignore
+avg_loss /= len(test_dataloader.dataset)
 
 logger.info("--Evaluation:")
 logger.info("Avg Loss: {}  Inter-UAS: {}  Inter-LAS: {} \Inner-UAS: {}  Inner-LAS: {} n".format(avg_loss, inter_uas, inter_las, inner_uas, inner_las))
 
-save_file = "./{CFG.res_dir}/test_save.txt"
-results = [CFG.plm, round(avg_loss,4), inter_uas, inter_las, inner_uas, inner_las]  # type: ignore
+results = [CFG.plm, round(avg_loss,4), inter_uas, inter_las, inner_uas, inner_las]
 results = [str(x) for x in results]
 with open(save_file, "a+") as f:
-    f.write(",".join(results) + "\n")  # type: ignore
+    f.write(",".join(results) + "\n")

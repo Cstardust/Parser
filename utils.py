@@ -148,7 +148,6 @@ def uas_las(
             #         [ 0,  4,  0,  ...,  4,  4,  4],
             #         [ 0,  4,  0,  ...,  4,  4,  4],
             #         [ 0, 18,  8,  ..., 18, 18, 18]])
-
     # arc_logits_correct = (arc_logits == arc_gt).long() * mask * (rel_gt >= 21).long()
     arc_logits_correct = (arc_logits == arc_gt).long() * mask
     rel_logits_correct = (rel_logits == rel_gt).long() * arc_logits_correct

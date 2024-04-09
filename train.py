@@ -16,14 +16,8 @@ import os
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        '--train_file',
-        type=str,
-        default='./data/train.conll')
-    parser.add_argument(
-        '--plm',
-        type=str,
-        default='./plm/chinese-electra-180g-base-discriminator')
+    parser.add_argument('--train_file', type=str, default='./data/train.conll')
+    parser.add_argument('--plm', type=str, default='./plm/chinese-electra-180g-base-discriminator')
     parser.add_argument('--random_seed', type=int, default=42)
     parser.add_argument('--num_epochs', type=int, default=15)
     parser.add_argument('--batch_size', type=int, default=16)
@@ -59,8 +53,6 @@ print(pt_output_file)
 
 logger = logging.getLogger("logger")
 logger.setLevel(logging.INFO)
-print(logger)
-print(type(logger))
 fh = logging.FileHandler(filename=f"./{CFG.res_dir}/train.log", mode='a')
 logger.addHandler(fh)
 
@@ -112,8 +104,7 @@ def load_conll_with_aug(data_file: str, train_mode=True):
     f1.close()
     f2.close()
 
-
-train_dataset = ConllDataset(CFG, load_fn=load_conll_with_aug)
+train_dataset = ConllDataset(CFG, load_fn=load_conll_with_aug, train=True)
 train_iter = DataLoader(train_dataset, batch_size=CFG.batch_size, shuffle=True)
 
 model = DepParser(CFG)
