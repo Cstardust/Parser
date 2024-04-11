@@ -10,4 +10,4 @@ python train.py \
     --scheduler linear \
     --num_epochs 15 \
     --random_seed 123 \
-    --res_dir results_v1
+    --res_dir results_v2

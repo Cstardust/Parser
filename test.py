@@ -18,7 +18,7 @@ import os
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--dev_file', type=str, default='./data/use_test.conll')
-    parser.add_argument('--plm', type=str, default='./plm/chinese-electra-180g-base-discriminator')
+    parser.add_argument('--plm', type=str, default='./plm/bge-large-zh')
     parser.add_argument('--random_seed', type=int, default=42)
     parser.add_argument('--batch_size', type=int, default=128)
     parser.add_argument('--dropout', type=float, default=0.2)
@@ -75,6 +75,7 @@ def load_conll(data_file: str, train_mode=False):
 
 test_dataset = ConllDataset(CFG, load_fn=load_conll, train=False)
 test_dataloader = DataLoader(test_dataset, batch_size=CFG.batch_size)
+
 # test1
 # test_dataset = DialogDataset(CFG, data_file=CFG.data_file, data_ids=list(range(800)))
 # test_dataloader = DataLoader(test_dataset, batch_size=CFG.batch_size)

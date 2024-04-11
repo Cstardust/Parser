@@ -4,7 +4,7 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 from transformers import AutoConfig, AutoModel
-from model.module import NonLinear, Biaffine, BiLSTMEncoder
+from model.module import NonLinear, Biaffine, MyLSTM
 from utils import arc_rel_loss
 
 class DepParser(nn.Module):
@@ -48,17 +48,18 @@ class DepParser(nn.Module):
         # # 上式维度变化是 (d × k)(k × k)(k × 1) + (d × k)(k × 1) = (d × 1)
         # # 结果是拿到了d个token的分数R(d×1)，同时分类器又不需要维护多个不同大小的权值矩阵（只需一个R(k×k)的矩阵和两个MLP），漂亮地实现了可变类别分类。
         # # 将bias放入U1, 得 (H_arc-head ⊙ 1) * U-arc * H_arc-head = S_arc
-##
-        # BiLSTM TEST
+
+
+## MyLSTM
         self.plm = AutoModel.from_pretrained(cfg.plm)
-        
-        # 创建 BiLSTM 编码器
-        self.encoder = BiLSTMEncoder(
-            embeddings=[(len(cfg.tokenizer), self.plm.config.embedding_size)],  # 假设使用了词嵌入，需要传入词汇表大小和词嵌入维度
-            lstm_hidden_size=cfg.hidden_size,
-            embedding_dropout=0.33,
-            lstm_dropout=0.33,
-            recurrent_dropout=0.33
+        self.encoder = MyLSTM(
+            input_size = self.plm.config.hidden_size,
+            hidden_size = 384,
+            num_layers = 3,
+            batch_first = True,
+            bidirectional = True,
+            dropout_in = 0.33,
+            dropout_out = 0.33,
         )
         self.mlp_arc_dep = NonLinear(in_features=self.encoder.out_size, 
                                      out_features=mlp_arc_size+mlp_rel_size, 
@@ -67,8 +68,7 @@ class DepParser(nn.Module):
         self.mlp_arc_head = NonLinear(in_features=self.encoder.out_size,      # 500
                                       out_features=mlp_arc_size+mlp_rel_size,           # 500 + 500 = 1000
                                       activation=nn.LeakyReLU(0.1))
-        # BiLSTM TEST 
-
+## MyLSTM
 
         # # MLP输出的特征向量拆分成多少份
         # self.total_num = int((mlp_arc_size + mlp_rel_size) / 100)
@@ -84,19 +84,30 @@ class DepParser(nn.Module):
 
         # Dropout 层会随机将输入张量中的一部分元素设置为零，这样可以减少神经网络对特定输入的依赖，从而增强模型的泛化能力。
         self.dropout = nn.Dropout(dropout)
-     
+
     # 这个方法用于提取输入序列的特征。它接收一个输入字典 inputs，包含模型的输入数据。
     # 通过 encoder 对输入进行编码，获取输入序列的特征表示。
     # 提取特征时，移除了特殊token [CLS] 和 [SEP]，并返回 [CLS] 对应的特征向量、词级别的特征表示以及每个词的长度。 
     # feat里做的是啥处理? 这个encoder到底做了啥? 怎么编码成特征的?   
-    def feat(self, inputs):
+    def feat(self, inputs, mask):
         # 对于每个篇章进行mask求和然后-2(首尾), 计算出每个篇章的有效长度. 
         length = torch.sum(inputs["attention_mask"], dim=-1) - 2 
         # 这个length张量就是当前输入的每个篇章的有效长度. tensor([28, 13,  7, 35, 12,  3,  8,  6,  8,  9,  9,  5,  4,  2, 14, 16,  8,  1, 6, 12, 13, 12, 12, 12, 14, 10, 16, 16, 21, 19, 10, 16], device = 'cuda:0' ""
         # length长度为32
-
+        
         # 对之前的inputs进行编码
-        feats, *_ = self.encoder(**inputs, return_dict=False)  
+        # feats, *_ = self.encoder(**inputs, return_dict=False)
+        # print('feat a', feats.size())
+        # tt = feats.pooler_output
+        # print('tt b', feats.size())
+        
+        # TRY
+        # print('input_ids', inputs["input_ids"].size())
+        # print('mask', mask.size())
+        feats, *_ = self.plm(**inputs, return_dict=False)
+        # print('feat ', feats.size())
+        # TRY
+
         # batch_size, seq_len (tokenized), plm_hidden_size
         # feats torch.Size([32, 160, 768])
         # batch_size: 本批次有多少个对话篇章.
@@ -130,7 +141,7 @@ class DepParser(nn.Module):
         # cls shape = [bs,1,768]
         # char feat = [bs,158,768]
         # word_len = [bs,1]
-        cls_feat, char_feat, word_len = self.feat(inputs)
+        cls_feat, char_feat, word_len = self.feat(inputs, masks)
             # cls_feat torch.Size([32, 1, 768])
             # char_feat torch.Size([32, 158, 768])
             # print('cls_feat', cls_feat.size())
@@ -149,8 +160,16 @@ class DepParser(nn.Module):
         word_cls_feat = torch.cat([cls_feat, word_feat], dim=1)
         # print('word_cls_feat size', word_cls_feat.size())
         # word_cls_feat size torch.Size([32, 160, 768])
+        
+        # TRY
+        word_cls_feat_t, _ = self.encoder(word_cls_feat, masks)
+        word_cls_feat_t = word_cls_feat_t.transpose(0, 1)
+        feats = self.dropout(word_cls_feat_t)
+        # TRY
 
-        feats = self.dropout(word_cls_feat)
+        # print(word_cls_feat_t.size())
+        # print(type(word_cls_feat_t))
+        # feats = self.dropout(word_cls_feat)
         # print('feats size', feats.size())
         # feats size torch.Size([32, 160, 768]
 

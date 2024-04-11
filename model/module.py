@@ -5,6 +5,7 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 from transformers import AutoConfig, AutoModel
+import numpy as np
 
 # 通常情况下，在创建 nn.Linear 层时不需要手动初始化权重矩阵和偏置项
 # PyTorch会自动对它们进行初始化，默认正态分布。
@@ -120,86 +121,234 @@ class Biaffine(nn.Module):
         return biaffine
 
 
+from torch._C import _ImperativeEngine as ImperativeEngine
 
 
-# class BLSTM(nn.Module):
-#     """
-#         Implementation of BLSTM Concatenation for sentiment classification task
-#     """
+__all__ = ["VariableMeta", "Variable"]
 
-#     def __init__(self, embeddings, input_dim, hidden_dim, num_layers, output_dim, max_len=40, dropout=0.5):
-#         super(BLSTM, self).__init__()
 
-#         self.emb = nn.Embedding(num_embeddings=embeddings.size(0),
-#                                 embedding_dim=embeddings.size(1),
-#                                 padding_idx=0)
-#         self.emb.weight = nn.Parameter(embeddings)
+class VariableMeta(type):
+    def __instancecheck__(cls, other):
+        return isinstance(other, torch.Tensor)
 
-#         self.input_dim = input_dim
-#         self.hidden_dim = hidden_dim
-#         self.output_dim = output_dim
 
-#         # sen encoder
-#         self.sen_len = max_len
-#         self.sen_rnn = nn.LSTM(input_size=input_dim,
-#                                hidden_size=hidden_dim,
-#                                num_layers=num_layers,
-#                                dropout=dropout,
-#                                batch_first=True,
-#                                bidirectional=True)
+class Variable(torch._C._LegacyVariableBase, metaclass=VariableMeta):  # type: ignore[misc]
+    _execution_engine = ImperativeEngine()
 
-#         self.output = nn.Linear(2 * self.hidden_dim, output_dim)
 
-#     def bi_fetch(self, rnn_outs, seq_lengths, batch_size, max_len):
-#         rnn_outs = rnn_outs.view(batch_size, max_len, 2, -1)
+def orthonormal_initializer(output_size, input_size):
+    """
+    adopted from Timothy Dozat https://github.com/tdozat/Parser/blob/master/lib/linalg.py
+    """
+    print(output_size, input_size)
+    I = np.eye(output_size)
+    lr = .1
+    eps = .05 / (output_size + input_size)
+    success = False
+    tries = 0
+    while not success and tries < 10:
+        Q = np.random.randn(input_size, output_size) / np.sqrt(output_size)
+        for i in range(100):
+            QTQmI = Q.T.dot(Q) - I
+            loss = np.sum(QTQmI ** 2 / 2)
+            Q2 = Q ** 2
+            Q -= lr * Q.dot(QTQmI) / (
+                    np.abs(Q2 + Q2.sum(axis=0, keepdims=True) + Q2.sum(axis=1, keepdims=True) - 1) + eps)
+            if np.max(Q) > 1e6 or loss > 1e6 or not np.isfinite(loss):
+                tries += 1
+                lr /= 2
+                break
+        success = True
+    if success:
+        print('Orthogonal pretrainer loss: %.2e' % loss)
+    else:
+        print('Orthogonal pretrainer failed, using non-orthogonal random matrix')
+        Q = np.random.randn(input_size, output_size) / np.sqrt(output_size)
+    return np.transpose(Q.astype(np.float32))
 
-#         # (batch_size, max_len, 1, -1)
-#         fw_out = torch.index_select(rnn_outs, 2, Variable(torch.LongTensor([0])).cuda())
-#         fw_out = fw_out.view(batch_size * max_len, -1)
-#         bw_out = torch.index_select(rnn_outs, 2, Variable(torch.LongTensor([1])).cuda())
-#         bw_out = bw_out.view(batch_size * max_len, -1)
 
-#         batch_range = Variable(torch.LongTensor(range(batch_size))).cuda() * max_len
-#         batch_zeros = Variable(torch.zeros(batch_size).long()).cuda()
+# 自定义的LSTM类，继承自PyTorch的nn.Module
+class MyLSTM(nn.Module):
 
-#         fw_index = batch_range + seq_lengths.view(batch_size) - 1
-#         fw_out = torch.index_select(fw_out, 0, fw_index)  # (batch_size, hid)
+    """A module that runs multiple steps of LSTM."""
 
-#         bw_index = batch_range + batch_zeros
-#         bw_out = torch.index_select(bw_out, 0, bw_index)
+    # 初始化函数，定义了模型的结构
+    def __init__(self, input_size, hidden_size, num_layers=1, batch_first=False, \
+                 bidirectional=False, dropout_in=0, dropout_out=0):
+        super(MyLSTM, self).__init__()
+        
+        # 初始化模型参数
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.batch_first = batch_first
+        self.bidirectional = bidirectional
+        self.dropout_in = dropout_in
+        self.dropout_out = dropout_out
+        self.num_directions = 2 if bidirectional else 1
 
-#         outs = torch.cat([fw_out, bw_out], dim=1)
-#         return outs
+        # 前向LSTM单元的列表
+        self.fcells = []
+        # 后向LSTM单元的列表（如果是双向LSTM的话）
+        self.bcells = []
+        
+        # 初始化前向和后向LSTM单元
+        for layer in range(num_layers):
+            layer_input_size = input_size if layer == 0 else hidden_size * self.num_directions
+            self.fcells.append(nn.LSTMCell(input_size=layer_input_size, hidden_size=hidden_size))
+            if self.bidirectional:
+                self.bcells.append(nn.LSTMCell(input_size=layer_input_size, hidden_size=hidden_size))
 
-#     def forward(self, sen_batch, sen_lengths, sen_mask_matrix):
-#         """
-#         :param sen_batch: (batch, sen_length), tensor for sentence sequence
-#         :param sen_lengths:
-#         :param sen_mask_matrix:
-#         :return:
-#         """
+        # 参数列表，用于存储权重和偏置参数
+        self._all_weights = []
+        for layer in range(num_layers):
+            # 前向LSTM单元参数
+            layer_params = (self.fcells[layer].weight_ih, self.fcells[layer].weight_hh, \
+                            self.fcells[layer].bias_ih, self.fcells[layer].bias_hh)
+            suffix = ''
+            param_names = ['weight_ih_l{}{}', 'weight_hh_l{}{}']
+            param_names += ['bias_ih_l{}{}', 'bias_hh_l{}{}']
+            param_names = [x.format(layer, suffix) for x in param_names]
+            # 将参数添加到模型中
+            for name, param in zip(param_names, layer_params):
+                setattr(self, name, param)
+            self._all_weights.append(param_names)
 
-#         ''' Embedding Layer | Padding | Sequence_length 40'''
-#         sen_batch = self.emb(sen_batch)
+            # 如果是双向LSTM，则初始化后向LSTM单元参数
+            if self.bidirectional:
+                layer_params = (self.bcells[layer].weight_ih, self.bcells[layer].weight_hh, \
+                                self.bcells[layer].bias_ih, self.bcells[layer].bias_hh)
+                suffix = '_reverse'
+                param_names = ['weight_ih_l{}{}', 'weight_hh_l{}{}']
+                param_names += ['bias_ih_l{}{}', 'bias_hh_l{}{}']
+                param_names = [x.format(layer, suffix) for x in param_names]
+                for name, param in zip(param_names, layer_params):
+                    setattr(self, name, param)
+                self._all_weights.append(param_names)
 
-#         batch_size = len(sen_batch)
+        # 初始化参数
+        self.reset_parameters()
 
-#         ''' Bi-LSTM Computation '''
-#         sen_outs, _ = self.sen_rnn(sen_batch.view(batch_size, -1, self.input_dim))
-#         sen_rnn = sen_outs.contiguous().view(batch_size, -1, 2 * self.hidden_dim)  # (batch, sen_len, 2*hid)
+    # 重置参数的函数
+    def reset_parameters(self):
+        for layer in range(self.num_layers):
+            # 如果是双向LSTM，初始化后向LSTM单元的参数
+            if self.bidirectional:
+                param_ih_name = 'weight_ih_l{}{}'.format(layer, '_reverse')
+                param_hh_name = 'weight_hh_l{}{}'.format(layer, '_reverse')
+                param_ih = self.__getattr__(param_ih_name)
+                param_hh = self.__getattr__(param_hh_name)
+                if layer == 0:
+                    W = orthonormal_initializer(self.hidden_size, self.hidden_size + self.input_size)
+                else:
+                    W = orthonormal_initializer(self.hidden_size, self.hidden_size + 2 * self.hidden_size)
+                W_h, W_x = W[:, :self.hidden_size], W[:, self.hidden_size:]
+                param_ih.data.copy_(torch.from_numpy(np.concatenate([W_x] * 4, 0)))
+                param_hh.data.copy_(torch.from_numpy(np.concatenate([W_h] * 4, 0)))
+            else:
+                # 如果是单向LSTM，初始化前向LSTM单元的参数
+                param_ih_name = 'weight_ih_l{}{}'.format(layer, '')
+                param_hh_name = 'weight_hh_l{}{}'.format(layer, '')
+                param_ih = self.__getattr__(param_ih_name)
+                param_hh = self.__getattr__(param_hh_name)
+                if layer == 0:
+                    W = orthonormal_initializer(self.hidden_size, self.hidden_size + self.input_size)
+                else:
+                    W = orthonormal_initializer(self.hidden_size, self.hidden_size + self.hidden_size)
+                W_h, W_x = W[:, :self.hidden_size], W[:, self.hidden_size:]
+                param_ih.data.copy_(torch.from_numpy(np.concatenate([W_x] * 4, 0)))
+                param_hh.data.copy_(torch.from_numpy(np.concatenate([W_h] * 4, 0)))
 
-#         ''' Fetch the truly last hidden layer of both sides
-#         '''
-#         sentence_batch = self.bi_fetch(sen_rnn, sen_lengths, batch_size, self.sen_len)  # (batch_size, 2*hid)
+        # 初始化偏置参数
+        for name, param in self.named_parameters():
+            if "bias" in name:
+                nn.init.constant(self.__getattr__(name), 0)
 
-#         representation = sentence_batch
-#         out = self.output(representation)
-#         out_prob = F.softmax(out.view(batch_size, -1))
+    # 静态方法，用于执行前向传播的RNN
+    @staticmethod
+    def _forward_rnn(cell, input, masks, initial, drop_masks):
+        max_time = input.size(0)
+        output = []
+        hx = initial
+        for time in range(max_time):
+            h_next, c_next = cell(input=input[time], hx=hx)
+            h_next = h_next*masks[time] + initial[0]*(1-masks[time])
+            c_next = c_next*masks[time] + initial[1]*(1-masks[time])
+            output.append(h_next)
+            if drop_masks is not None: h_next = h_next * drop_masks
+            hx = (h_next, c_next)
+        output = torch.stack(output, 0)
+        return output, hx
 
-#         return out_prob
+    # 静态方法，用于执行前向传播的双向RNN
+    @staticmethod
+    def _forward_brnn(cell, input, masks, initial, drop_masks):
+        max_time = input.size(0)
+        output = []
+        hx = initial
+        for time in reversed(range(max_time)):
+            h_next, c_next = cell(input=input[time], hx=hx)
+            h_next = h_next*masks[time] + initial[0]*(1-masks[time])
+            c_next = c_next*masks[time] + initial[1]*(1-masks[time])
+            output.append(h_next)
+            if drop_masks is not None: h_next = h_next * drop_masks
+            hx = (h_next, c_next)
+        output.reverse()
+        output = torch.stack(output, 0)
+        return output, hx
 
+    # 前向传播函数
+    def forward(self, input, masks, initial=None):
+        if self.batch_first:
+            input = input.transpose(0, 1)
+            masks = torch.unsqueeze(masks.transpose(0, 1), dim=2)
+        max_time, batch_size, _ = input.size()
+        masks = masks.expand(-1, -1, self.hidden_size)
+
+        if initial is None:
+            initial = Variable(input.data.new(batch_size, self.hidden_size).zero_())
+            initial = (initial, initial)
+        h_n = []
+        c_n = []
+
+        # 循环处理每一层的LSTM单元
+        for layer in range(self.num_layers):
+            max_time, batch_size, input_size = input.size()
+            input_mask, hidden_mask = None, None
+            if self.training:
+                input_mask = input.data.new(batch_size, input_size).fill_(1 - self.dropout_in)
+                input_mask = Variable(torch.bernoulli(input_mask), requires_grad=False)
+                input_mask = input_mask / (1 - self.dropout_in)
+                input_mask = torch.unsqueeze(input_mask, dim=2).expand(-1, -1, max_time).permute(2, 0, 1)
+                input = input * input_mask
+
+                hidden_mask = input.data.new(batch_size, self.hidden_size).fill_(1 - self.dropout_out)
+                hidden_mask = Variable(torch.bernoulli(hidden_mask), requires_grad=False)
+                hidden_mask = hidden_mask / (1 - self.dropout_out)
+
+            layer_output, (layer_h_n, layer_c_n) = MyLSTM._forward_rnn(cell=self.fcells[layer], \
+                input=input, masks=masks, initial=initial, drop_masks=hidden_mask)
+            if self.bidirectional:
+                blayer_output, (blayer_h_n, blayer_c_n) = MyLSTM._forward_brnn(cell=self.bcells[layer], \
+                    input=input, masks=masks, initial=initial, drop_masks=hidden_mask)
+
+            # 将前向和后向的隐藏状态拼接在一起
+            h_n.append(torch.cat([layer_h_n, blayer_h_n], 1) if self.bidirectional else layer_h_n)
+            c_n.append(torch.cat([layer_c_n, blayer_c_n], 1) if self.bidirectional else layer_c_n)
+            input = torch.cat([layer_output, blayer_output], 2) if self.bidirectional else layer_output
+
+        # 将每一层的隐藏状态和细胞状态整理成一个张量
+        h_n = torch.stack(h_n, 0)
+        c_n = torch.stack(c_n, 0)
+
+        return input, (h_n, c_n)
+
+    @property
+    def out_size(self) -> int:
+        return self.hidden_size * 2
+
+"""
 class LSTM(nn.LSTM):
-    """LSTM with DropConnect."""
 
     __constants__ = nn.LSTM.__constants__ + ["recurrent_dropout"]
 
@@ -235,9 +384,6 @@ class EmbeddingDropout(nn.Module):
         self.p = p
 
     def forward(self, xs: Sequence[torch.Tensor]) -> List[torch.Tensor]:
-        """Drop embeddings with scaling.
-        https://github.com/tdozat/Parser-v2/blob/304c638aa780a5591648ef27060cfa7e4bee2bd0/parser/neural/models/nn.py#L50  # noqa
-        """
         if not self.training or self.p == 0.0:
             return list(xs)
         with torch.no_grad():
@@ -249,10 +395,10 @@ class EmbeddingDropout(nn.Module):
     def extra_repr(self) -> str:
         return f"p={self.p}"
 
-class BiLSTMEncoder():
+class BiLSTMEncoder(nn.Module):
     def __init__(
         self,
-        embeddings: Iterable[Union[torch.Tensor, Tuple[int, int]]],
+        # embeddings: Iterable[Union[torch.Tensor, Tuple[int, int]]],
         reduce_embeddings: Optional[Sequence[int]] = None,
         n_lstm_layers: int = 3,
         lstm_hidden_size: Optional[int] = None,
@@ -262,13 +408,13 @@ class BiLSTMEncoder():
     ):
         super().__init__()
         self.embeds = nn.ModuleList()
-        for item in embeddings:
-            if isinstance(item, tuple):
-                size, dim = item
-                emb = nn.Embedding(size, dim)
-            else:
-                emb = nn.Embedding.from_pretrained(item, freeze=False)
-            self.embeds.append(emb)
+        # for item in embeddings:
+        #     if isinstance(item, tuple):
+        #         size, dim = item
+        #         emb = nn.Embedding(size, dim)
+        #     else:
+        #         emb = nn.Embedding.from_pretrained(item, freeze=False)
+        #     self.embeds.append(emb)
         self._reduce_embs = sorted(reduce_embeddings or [])
 
         embed_dims = [emb.weight.size(1) for emb in self.embeds]
@@ -319,3 +465,32 @@ class BiLSTMEncoder():
     @property
     def out_size(self) -> int:
         return self._hidden_size * 2
+"""
+
+
+
+# 初始化编码器
+input_size = 100  # 输入大小
+hidden_size = 128  # 隐藏层大小
+num_layers = 2  # 层数
+batch_first = True  # 输入数据的第一个维度是否为batch_size
+encoder = MyLSTM(input_size, hidden_size, num_layers, batch_first, bidirectional=True)
+
+# 准备输入数据
+batch_size = 32
+sequence_length = 10
+input_data = torch.randn(batch_size, sequence_length, input_size)
+masks = torch.ones(batch_size, sequence_length)  # 假设没有填充，所有时间步均有效
+
+# 执行编码
+output, (final_hidden_state, final_cell_state) = encoder(input_data, masks)
+
+# 将输出转置为(batch_size, sequence_length, hidden_size * num_directions)
+output = output.transpose(0, 1)
+
+# 输出的形状为(batch_size, sequence_length, hidden_size * num_directions)
+print("Encoder output shape:", output.shape)
+
+# 最终隐藏状态和细胞状态的形状为(num_layers * num_directions, batch_size, hidden_size)
+print("Final hidden state shape:", final_hidden_state.shape)
+print("Final cell state shape:", final_cell_state.shape)

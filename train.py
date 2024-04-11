@@ -24,8 +24,8 @@ def parse_args():
     parser.add_argument('--plm_lr', type=float, default=2e-5)
     parser.add_argument('--head_lr', type=float, default=1e-4)
     parser.add_argument('--weight_decay', type=float, default=0.01)
-    parser.add_argument('--dropout', type=float, default=0.2)
-    parser.add_argument('--grad_clip', type=float, default=2)
+    parser.add_argument('--dropout', type=float, default=0.33)   # 0.2
+    parser.add_argument('--grad_clip', type=float, default=3)    # 2
     parser.add_argument('--scheduler', type=str, default='linear')
     parser.add_argument('--warmup_ratio', type=float, default=0.1)
     parser.add_argument('--num_early_stop', type=int, default=3)
@@ -103,6 +103,7 @@ def load_conll_with_aug(data_file: str, train_mode=True):
 
     f1.close()
     f2.close()
+
 
 train_dataset = ConllDataset(CFG, load_fn=load_conll_with_aug, train=True)
 train_iter = DataLoader(train_dataset, batch_size=CFG.batch_size, shuffle=True)

@@ -5,7 +5,7 @@ from tqdm import tqdm
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
-from torch.optim import AdamW
+from torch.optim import AdamW, Adam
 from transformers import get_linear_schedule_with_warmup
 
 from utils import to_cuda
@@ -31,14 +31,16 @@ class BasicTrainer():
         plm_params = [p for n,p in model.named_parameters() if 'encoder' in n]
         head_params = [p for n,p in model.named_parameters() if 'encoder' not in n]
 
-        # 需要给优化器提供网络的所有参数
-        # 训练的时候就是通过这个Adam优化器来更新参数
+        # # 需要给优化器提供网络的所有参数
+        # # 训练的时候就是通过这个Adam优化器来更新参数
         self.optim = AdamW([{'params': plm_params, 'lr':config.plm_lr}, 
                             {'params': head_params, 'lr':config.head_lr}], 
                             lr=config.plm_lr,
                             weight_decay=config.weight_decay
                           )
-    
+        # # TRY
+        # self.optim = Adam(self.parameters(), lr=config.plm_lr)
+        # # TRY
         # 计算训练步数和预热步数，用于学习率调度
         training_step = int(config.num_epochs * (trainset_size / config.batch_size))
         warmup_step = int(config.warmup_ratio * training_step)  

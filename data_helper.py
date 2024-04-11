@@ -208,16 +208,15 @@ class DialogDataset(Dataset):
                           "token_type_ids": tokenized['token_type_ids'][0], # token的类型ID
                            "attention_mask": tokenized['attention_mask'][0] # 注意力掩码
                           })
-            # Tokenized: {'input_ids': tensor([[ 101,  872, 1962, 1086, 6224, 1103, 3299, 1305,  102,    0]]), 'token_type_ids': tensor([[0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]), 'attention_mask': tensor([[1, 1, 1, 1, 1, 1, 1, 1, 1, 0]]), 'offset_mapping': tensor([[[0, 0],
-                #  [0, 1],
-                #  [1, 2],
-                #  [0, 1],
-                #  [1, 2],
-                #  [0, 1],
-                #  [1, 2],
-                #  [2, 3],
-                #  [0, 0],
-                #  [0, 0]]])}
+            # Tokenized: {'input_ids': tensor([[ 101,  872, 1962, 1086, 6224, 1103, 3299, 1305,  102,    0]]), 'token_type_ids': tensor([[0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]), 'attention_mask': tensor([[1, 1, 1, 1, 1, 1, 1, 1, 1, 0]]), 'offset_mapping': tensor([[[0, 0], [0, 1],
+            #      [1, 2],
+            #      [0, 1],
+            #      [1, 2],
+            #      [0, 1],
+            #      [1, 2],
+            #      [2, 3],
+            #      [0, 0],
+            #      [0, 0]]])}
             
             # 初始化一个空列表，用于存储每个单词在编码后序列中的位置索引
             sentence_word_idx = []
@@ -375,7 +374,7 @@ class ConllDataset(Dataset):
                             "token_type_ids": tokenized['token_type_ids'][0],
                             "attention_mask": tokenized['attention_mask'][0]
                             })
-            
+
             sentence_word_idx = []
             for idx, (start, end) in enumerate(tokenized.offset_mapping[0][1:]):
                 if start == 0 and end != 0:
@@ -387,7 +386,8 @@ class ConllDataset(Dataset):
             heads.append(head_tokens)
             rels.append(rel_tokens)
             masks.append(mask_tokens)
-                    
+
+
         return inputs, offsets, heads, rels, masks
 
 
