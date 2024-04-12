@@ -14,5 +14,6 @@ step2: bash train_with_[bert/bge/electra/roberta].sh
 | Bert+Biaffine    | 0.8019    | 0.8243    |
 | Bge+Biaffine     | 0.8710    | 0.9012    |
 
-v2: loss 加权, 弧0.8, 关系1.2
-v3: BiLSTM用作编码器
+v1: loss 加权, 弧0.8, 关系1.2
+v2: BiLSTM用作编码器
+v3: BiLSTM编码器, Adam优化器, plm_lr = 2e-4, drop_out 0.33, weight_decay 0.01

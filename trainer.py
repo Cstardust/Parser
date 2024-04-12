@@ -33,14 +33,14 @@ class BasicTrainer():
 
         # # 需要给优化器提供网络的所有参数
         # # 训练的时候就是通过这个Adam优化器来更新参数
-        self.optim = AdamW([{'params': plm_params, 'lr':config.plm_lr}, 
-                            {'params': head_params, 'lr':config.head_lr}], 
-                            lr=config.plm_lr,
-                            weight_decay=config.weight_decay
-                          )
-        # # TRY
-        # self.optim = Adam(self.parameters(), lr=config.plm_lr)
-        # # TRY
+        # self.optim = AdamW([{'params': plm_params, 'lr':config.plm_lr}, 
+        #                     {'params': head_params, 'lr':config.head_lr}], 
+        #                     lr=config.plm_lr,
+        #                     weight_decay=config.weight_decay
+        #                   )
+        # TRY
+        self.optim = Adam(model.parameters(), lr=config.plm_lr, weight_decay=config.weight_decay)
+        # TRY
         # 计算训练步数和预热步数，用于学习率调度
         training_step = int(config.num_epochs * (trainset_size / config.batch_size))
         warmup_step = int(config.warmup_ratio * training_step)  

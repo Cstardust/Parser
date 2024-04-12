@@ -48,4 +48,10 @@ rel2id = {}
 for i, (key, value) in enumerate(rel_dct.items()):
     rel2id[key] = i
 
+id2rel = {}
+for i, (key, value) in enumerate(rel_dct.items()):
+    id2rel[i] = key
+
+# print(rel2id)
+# {'root': 0, 'sasubj-obj': 1, 'sasubj': 2, 'dfsubj': 3, 'subj': 4, 'subj-in': 5, 'obj': 6, 'pred': 7, 'att': 8, 'adv': 9, 'cmp': 10, 'coo': 11, 'pobj': 12, 'iobj': 13, 'de': 14, 'adjct': 15, 'app': 16, 'exp': 17, 'punc': 18, 'frag': 19, 'repet': 20, 'attr': 21, 'bckg': 22, 'cause': 23, 'comp': 24, 'cond': 25, 'cont': 26, 'elbr': 27, 'enbm': 28, 'eval': 29, 'expl': 30, 'joint': 31, 'manner': 32, 'rstm': 33, 'temp': 34, 'tp-chg': 35, 'prob-sol': 36, 'qst-ans': 37, 'stm-rsp': 38, 'req-proc': 39}
 punct_lst = ['，', '.', '。', '!', '?', '~', '...', '......', ',', ':', '：', ';']

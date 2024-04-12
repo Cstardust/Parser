@@ -1,20 +1,23 @@
 
 from typing import *
 import json
-from constant import rel_dct, rel2id
+from constant import rel_dct, rel2id, id2rel
 
 from tqdm import tqdm
 import numpy as np
 import torch
 from torch.utils.data import Dataset
+import argparse
 
 # Dependency: {尾部单词索引, 单词内容, 头部单词索引, 关系类型}           
 class Dependency():
-    def __init__(self, idx, word, head, rel):
-        self.id = idx
+    def __init__(self, idx, word, head, rel, hstr=None, tdx=None):
+        self.idx = idx
         self.word = word
         self.head = head
         self.rel = rel
+        self.hword = hstr
+        self.tdx = tdx
 
     def __str__(self):
         # example:  1	上海	_	NR	NR	_	2	nn	_	_
@@ -22,37 +25,14 @@ class Dependency():
         return '\t'.join(values)
 
     def __repr__(self):
-        return f"({self.word}, {self.head}, {self.rel})"
-
+        if self.hword is None:
+            return f"({self.word}, {self.head}, {self.rel})"
+        else:
+            return f"({self.word} --> {self.hword}: {self.rel} {id2rel[int(self.rel)]})"
     
-def load_codt(data_file: str):
-    sentence:List[Dependency] = []
-
-    with open(data_file, 'r', encoding='utf-8') as f:
-        # data example: 1	上海	_	NR	NR	_	2	nn	_	_
-        for line in f.readlines():
-            toks = line.split()
-            if len(toks) == 0:
-                yield sentence
-                sentence = []
-            elif len(toks) == 10:
-                dep = Dependency(toks[0], toks[1], toks[3], toks[6], toks[7])
-                sentence.append(dep)
-
-def load_codt_new(data_file: str):
-    sentence:List[Dependency] = []
-
-    with open(data_file, 'r', encoding='utf-8') as f:
-        # data example: 1	上海	_	NR	NR	_	2	nn	_	_
-        for line in f.readlines():
-            toks = line.split()
-            if len(toks) == 0:
-                yield sentence
-                sentence = []
-            elif len(toks) == 10:
-                dep = Dependency(toks[0], toks[1], toks[3], toks[8], toks[9])
-                sentence.append(dep)
-
+    def repr(self):
+        return self.__repr__()
+    
 # 获取所有回合对话的依存关系列表 sample_list[list(Dependency)] 
 # 其元素list(Dependency)是每个回合的依存关系列表
 # Dependency: {尾部单词索引, 单词内容, 头部单词索引, 关系类型}           
@@ -125,6 +105,61 @@ def load_annoted(data_file, data_ids=None):
     return sample_lst
 
 
+def tensor2dep(heads, rels, words, masks):
+    ddeps : List[List[Dependency]] = []
+    # 所有句子
+    for idx, head in enumerate(heads):
+        # 一个句子的依存关系
+        dep_vec : List[Dependency] = []
+        # 遍历一个句子head 如下
+        # heads ##0: [ 0  0  3  1  6  6  1  6  6 10  8  6 11
+        mask = masks[idx]
+        limit = 0
+        # print('mask', mask)
+        for ti, tj in enumerate(mask):
+            if tj == 0 and ti != 0:
+                limit = int(ti)
+                break
+        word = words[idx]
+        print('limit', limit, 'word ', word)
+        for jdx, h_jdx in enumerate(head):
+            if jdx == 0:
+                continue
+            if jdx >= limit:
+                break
+            if mask[jdx] == 0 and jdx != 0:
+                break
+            print('limit idx', limit, 'idx = ', idx, 'jdx = ', jdx, 'len(words)', len(words), 'len(words[idx])', len(words[idx]))
+            if h_jdx == 0:
+                w_head = 'CLS'
+            else:
+                w_head = word[h_jdx - 1]    # head str
+            w_tail = word[jdx - 1]          # tail str
+            rel = rels[idx][jdx]        # rel str
+            dep = Dependency(jdx, w_tail, h_jdx - 1, rel, w_head, idx)
+            dep_vec.append(dep)
+        # 所有句子的依存关系
+        ddeps.append(dep_vec)
+
+    return ddeps
+
+
+def load_conll(data_file: str, train_mode=False):
+    sentence: List[Dependency] = []
+
+    with open(data_file, 'r', encoding='utf-8') as fi_data:
+        for line in fi_data.readlines():
+            toks = line.split()
+            if len(toks) == 0:
+                yield sentence
+                sentence = []
+            elif len(toks) == 10:
+                if toks[8] != '_':
+                    dep = Dependency(toks[0], toks[1], toks[8], toks[9])
+                else:
+                    dep = Dependency(toks[0], toks[1], toks[6], toks[7])
+                sentence.append(dep)
+
 class DialogDataset(Dataset):
     def __init__(self, cfg, data_file, data_ids):
         """
@@ -137,7 +172,7 @@ class DialogDataset(Dataset):
         """
         self.cfg = cfg
         self.data_file = data_file
-        self.inputs, self.offsets, self.heads, self.rels, self.masks = self.read_data(data_ids)
+        self.inputs, self.offsets, self.heads, self.rels, self.masks, self.wwords, self.ddeps = self.read_data(data_ids)
         
     def read_data(self, data_ids):
         """
@@ -155,6 +190,8 @@ class DialogDataset(Dataset):
         """
         inputs, offsets = [], []
         tags, heads, rels, masks = [], [], [], []
+        wwords = []
+        ddeps = []
 
         # 遍历指定索引的数据样本. (json被处理成了Dependency列表)
             # data_file: test.json / train_50.json
@@ -203,7 +240,6 @@ class DialogDataset(Dataset):
                                               return_tensors='pt',
                                               is_split_into_words=True)
             # 编码后的结果填入inputs list
-            # 为啥叫做input? 是指这个就是最终输入给模型的input吗? 还会经过pretrained的一层编码
             inputs.append({"input_ids": tokenized['input_ids'][0],          # 输入token的ID. 就是这一个list得单词的编码
                           "token_type_ids": tokenized['token_type_ids'][0], # token的类型ID
                            "attention_mask": tokenized['attention_mask'][0] # 注意力掩码
@@ -246,10 +282,11 @@ class DialogDataset(Dataset):
             offsets.append(torch.as_tensor(sentence_word_idx))
 
             # 保存头部单词索引, 关系, 有效掩码
+            wwords.append(word_lst)
             heads.append(head_tokens)
             rels.append(rel_tokens)
             masks.append(mask_tokens)
-        
+            ddeps.append(deps)
         # inputs: 输入的句子拆分成词, 并得到的所有词的编码：
             # [ {[input_ids],[token_type_ids],[attention_mask]}, {[input_ids],[token_type_ids],[attention_mask]}]
             # "input_ids": 对于word_lst的编码.
@@ -264,7 +301,7 @@ class DialogDataset(Dataset):
     # 返回一篇章对话(上文的一回合)的词的依存关系
     # 一次train_iter迭代器会多次调用__getitem__, 将他们纵向拼接成一个矩阵
     def __getitem__(self, idx):
-        return self.inputs[idx], self.offsets[idx], self.heads[idx], self.rels[idx], self.masks[idx]
+        return self.inputs[idx], self.offsets[idx], self.heads[idx], self.rels[idx], self.masks[idx], self.wwords[idx], self.ddeps[idx]
 #     inputs {'input_ids': tensor([ 101, 2644, 1962, 8024, 4867, 2644, 1921, 1921, 1962, 2552, 2658, 6435,
 #         2644, 4924, 5023, 8024, 3633, 1762,  711, 2644, 4802, 6371, 3634, 1184,
 #         1486, 6418, 1079, 2159,  511,  102,    0,    0,    0,    0,    0,    0,
@@ -330,12 +367,23 @@ class ConllDataset(Dataset):
         self.cfg = cfg
         self.tokenizer = cfg.tokenizer
         self.load_fn = load_fn
-        self.inputs, self.offsets, self.heads, self.rels, self.masks = self.read_data()
-        
+        # self.inputs, self.offsets, self.heads, self.rels, self.masks, self.wwords, self.ddeps = self.read_data()
+        # self.inputs, self.offsets, self.heads, self.rels, self.masks, self.wwords = self.read_data()
+        self.inputs, self.offsets, self.heads, self.rels, self.masks, self.wwords, self.ddeps = self.read_data()
+    
+    @property
+    def get_words(self):
+        return self.wwords
+
     def read_data(self):
+        from visualization import logger
+
+        logger.info("=================read data {}=================".format(self.cfg.dev_file))
         inputs, offsets = [], []
         tags, heads, rels, masks = [], [], [], []
-    
+        wwords = []
+        ddeps = []
+
         file = self.cfg.train_file if self.train else self.cfg.dev_file
         for deps in tqdm(self.load_fn(file, self.train)):
             seq_len = len(deps)
@@ -370,6 +418,8 @@ class ConllDataset(Dataset):
                                                 return_offsets_mapping=True, 
                                                 return_tensors='pt',
                                                 is_split_into_words=True)
+            
+
             inputs.append({"input_ids": tokenized['input_ids'][0],
                             "token_type_ids": tokenized['token_type_ids'][0],
                             "attention_mask": tokenized['attention_mask'][0]
@@ -386,171 +436,44 @@ class ConllDataset(Dataset):
             heads.append(head_tokens)
             rels.append(rel_tokens)
             masks.append(mask_tokens)
+            ddeps.append(deps)
+            wwords.append(word_lst)
 
+        # logger.info('0 wwords {}'.format(wwords))
+        for idx, line in enumerate(wwords):
+            logger.info("wwords &&{}: {}&&".format(idx, line))
+            if idx >= 5:
+                break
 
-        return inputs, offsets, heads, rels, masks
+        for idx, deps in enumerate(ddeps):
+            logger.info("ddeps $${}: {}$$".format(idx, deps))
+            if idx >= 5:
+                break
+        
+        for idx, th in enumerate(heads):
+            logger.info(f"heads ##{idx}: {th}##")
+            if idx >= 5:
+                break
+        
+        for idx, th in enumerate(rels):
+            logger.info(f"rels ^^{idx}: {th}^^")
+            if idx >= 5:
+                break
+        for idx, th in enumerate(masks):
+            logger.info(f"masks @@{idx}: {th}@@")
+            if idx >= 5:
+                break
 
+        print('heads', type(heads), len(heads))
+        print('rels', type(rels), len(rels))
+        print('masks', type(masks), len(masks))
+        print('ddeps', type(ddeps), len(ddeps))
+        print('words', type(wwords), len(wwords))
+
+        return inputs, offsets, heads, rels, masks, wwords, ddeps
 
     def __getitem__(self, idx):
         return self.inputs[idx], self.offsets[idx], self.heads[idx], self.rels[idx], self.masks[idx]
     def __len__(self):
         return len(self.rels)
 
-
-def load_codt_signal(data_file: str, return_two=False):
-    sentence:List = []
-    with open(data_file, 'r', encoding='utf-8') as f:
-        for line in f.readlines():
-            toks = line.split()
-            if len(toks) == 0 and len(sentence) != 0:
-                yield sentence
-                sentence = []
-            elif len(toks) == 10:                
-                if return_two:
-                    sentence.append([int(toks[2]), int(toks[3])])
-                else:
-                    sentence.append(int(toks[2]))
-
-
-def load_inter(data_file):
-    with open(data_file, 'r', encoding='utf-8') as f:
-        data = json.load(f)
-        
-    signal_iter = load_codt_signal('mlm_based/diag_test.conll', return_two=True)
-
-    sample_lst:List[List[Dependency]] = []
-    # for d, pred_signals in tqdm(zip(data, load_codt_signal('../prompt_based/diag_test.conll', idx=3))):
-    for d in data:
-        rel_dct = {}
-        for tripple in d['relationship']:
-            head, rel, tail = tripple
-            head_uttr_idx, head_word_idx = [int(x) for x in head.split('-')]
-            tail_uttr_idx, tail_word_idx = [int(x) for x in tail.split('-')]
-            
-            if rel == 'root' and head_uttr_idx != 0: # ignore root
-                continue
-                 
-            if not rel_dct.get(tail_uttr_idx, None):
-                rel_dct[tail_uttr_idx] = {tail_word_idx: [head, rel]}
-            else:
-                rel_dct[tail_uttr_idx][tail_word_idx] = [head, rel]
-                
-        sent_lens_accum = [1]
-        for i, item in enumerate(d['dialog']):
-            utterance = item['utterance']
-            sent_lens_accum.append(sent_lens_accum[i] + len(utterance.split(' ')) + 1)
-        sent_lens_accum[0] = 0
-        
-        dep_lst:List[Dependency] = []
-        role_lst:List[str] = []
-        weak_signal = []
-        for item in d['dialog']:
-            turn = item['turn']
-            utterance = item['utterance']
-
-            pred_signals = next(signal_iter)
-
-            role = '[ans]' if item['speaker'] == 'A' else '[qst]'
-            dep_lst.append(Dependency(sent_lens_accum[turn], role, -1, '_'))  
-            
-            tmp_signal = []
-            for word_idx, word in enumerate(utterance.split(' ')):
-                tail2head = rel_dct.get(turn, {1: [f'{turn}-{word_idx}', 'adjct']})
-                head, rel = tail2head.get(word_idx + 1, [f'{turn}-{word_idx}', 'adjct'])  # some word annoted missed, padded with last word and 'adjct'
-                head_uttr_idx, head_word_idx = [int(x) for x in head.split('-')]
-                
-                # only parse cross-utterance
-                if turn != head_uttr_idx:
-                    dep_lst.append(Dependency(sent_lens_accum[turn] + word_idx + 1, word, sent_lens_accum[head_uttr_idx] + head_word_idx, rel))  # add with accumulated length
-                else:
-                    dep_lst.append(Dependency(sent_lens_accum[turn] + word_idx + 1, word, -1, '_')) 
-
-                try:
-                    signal1, signal2 = pred_signals[i]
-                except IndexError:
-                    signal1, signal2 = pred_signals[len(pred_signals) - 1]
-                
-                tmp_signal = [signal1, signal2]
-                
-                # if word in weak_signal_dct.keys():
-                #     tmp_signal.append(weak_signal_dct[word])
-
-            if len(tmp_signal) != 0:
-                # weak_signal.append(tmp_signal[-1])  # choose the last
-                weak_signal.append(tmp_signal)  # choose the last
-            else:
-                weak_signal.append(-1)
-            role_lst.append(item['speaker'])        
-        sample_lst.append([dep_lst, role_lst, weak_signal])
-        
-    return sample_lst
-
-
-class InterDataset(Dataset):
-    def __init__(self, cfg):
-        self.cfg = cfg
-        self.tokenizer= cfg.tokenizer
-        self.inputs, self.offsets, self.heads, self.rels, self.masks, self.speakers, self.signs = self.read_data()
-        
-    def read_data(self):
-        inputs, offsets = [], []
-        tags, heads, rels, masks, speakers, signs = [], [], [], [], [], []
-                
-        for idx, (deps, roles, sign) in enumerate(load_inter(self.cfg.data_file)):
-            seq_len = len(deps)
-            signs.append(sign)
-
-            word_lst = [] 
-            head_tokens = np.zeros(1024, dtype=np.int64)  # same as root index is 0, constrainting by mask 
-            rel_tokens = np.zeros(1024, dtype=np.int64)
-            mask_tokens = np.zeros(1024, dtype=np.int64)
-            for i, dep in enumerate(deps):
-                if i == seq_len or i + 1== 1024:
-                    break
-
-                word_lst.append(dep.word)
-                
-                if int(dep.head) == -1 or int(dep.head) + 1 >= 1024:
-                    head_tokens[i+1] = 0
-                    mask_tokens[i+1] = 0
-                else:
-                    head_tokens[i+1] = int(dep.head)
-                    mask_tokens[i+1] = 1
-#                     head_tokens[i] = dep.head if dep.head != '_' else 0
-                rel_tokens[i+1] = rel2id.get(dep.rel, 0)
-
-            tokenized = self.tokenizer.encode_plus(word_lst, 
-                                              padding='max_length', 
-                                              truncation=True,
-                                              max_length=1024, 
-                                              return_offsets_mapping=True, 
-                                              return_tensors='pt',
-                                              is_split_into_words=True)
-            inputs.append({"input_ids": tokenized['input_ids'][0],
-                          "token_type_ids": tokenized['token_type_ids'][0],
-                           "attention_mask": tokenized['attention_mask'][0]
-                          })
-
-#                 sentence_word_idx = np.zeros(self.cfg.max_length, dtype=np.int64)
-            sentence_word_idx = []
-            for idx, (start, end) in enumerate(tokenized.offset_mapping[0][1:]):
-                if start == 0 and end != 0:
-                    sentence_word_idx.append(idx)
-#                         sentence_word_idx[idx] = idx
-            if len(sentence_word_idx) < 1024 - 1:
-                sentence_word_idx.extend([0]* (1024 - 1 - len(sentence_word_idx)))
-            offsets.append(torch.as_tensor(sentence_word_idx))
-#                 offsets.append(sentence_word_idx)
-
-            heads.append(head_tokens)
-            rels.append(rel_tokens)
-            masks.append(mask_tokens)
-            speakers.append(roles)
-                    
-        return inputs, offsets, heads, rels, masks, speakers, signs
-
-    def __getitem__(self, idx):
-        return self.inputs[idx], self.offsets[idx], self.heads[idx], self.rels[idx], self.masks[idx], self.speakers[idx], self.signs[idx]
-    
-    def __len__(self):
-        return len(self.rels)

@@ -98,7 +98,7 @@ arc_logit_whole, rel_logit_whole = torch.Tensor(), torch.Tensor()
 avg_loss = 0.0
 # for step, batch in enumerate(test_dataloader):
 for step, batch in enumerate(tqdm(test_dataloader, desc="Inference Progress")):
-    inputs, offsets, heads, rels, masks = batch
+    inputs, offsets, heads, rels, masks, words, deps = batch
         # - inputs: 输入数据列表，包含了编码后的对话输入
         # - offsets: 偏移量列表，记录了输入中单词的起始位置
         # - heads: 头部索引列表，记录了依存关系中的头部单词索引
@@ -214,7 +214,9 @@ for step, batch in enumerate(tqdm(test_dataloader, desc="Inference Progress")):
     avg_loss += loss.item() * len(heads)  # times the batch size of data
 
 # 计算相关指标
-metrics = uas_las(arc_logit_whole, rel_logit_whole, head_whole, rel_whole, mask_whole)
+# arc_logits_ed / heads torch.Size([4241, 160])    # [i,j] 第i批, 以j词作为尾词. 其父节点的位置
+# rel_logits_ed / rels  torch.Size([4241, 160])    # [i,j] 第i批, 以j词作为尾词. 其依存弧的标签
+metrics, arc_logits_ed, rel_logits_ed = uas_las(arc_logit_whole, rel_logit_whole, head_whole, rel_whole, mask_whole)
 print('metrics 0', metrics)
 avg_loss /= len(test_dataloader.dataset)
 results = [CFG.plm, round(avg_loss,4), metrics['UAS'], metrics['LAS']]
@@ -224,7 +226,7 @@ with open(save_file, "a+") as f:
 
 # ####################################################################
 
-metrics = inner_inter_uas_las(arc_logit_whole, rel_logit_whole, head_whole, rel_whole,
+metrics, _, _ = inner_inter_uas_las(arc_logit_whole, rel_logit_whole, head_whole, rel_whole,
                   mask_whole)
 print('metrics 1', metrics)
 

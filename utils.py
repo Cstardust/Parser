@@ -138,26 +138,22 @@ def uas_las(
     if len(rel_logits.shape) > len(rel_gt.shape):
         pred_dim, indices_dim = 2, 1
         rel_logits = rel_logits.max(pred_dim)[indices_dim]
-        # print('uas_las arc_logits', rel_logits.size())
-        # print('uas_las arc_logits', rel_logits)
-            # uas_las arc_logits torch.Size([4241, 160])    #  [i,j] 第i批, 以j词作为尾词. 其依存弧的标签
-            # uas_las arc_logits tensor([[ 0,  9,  4,  ...,  9,  9,  9],
+        # print('uas_las rel_logits', rel_logits.size())
+        # print('uas_las rel_logits', rel_logits)
+            # uas_las rel_logits torch.Size([4241, 160])    #  [i,j] 第i批, 以j词作为尾词. 其依存弧的标签
+            # uas_las rel_logits tensor([[ 0,  9,  4,  ...,  9,  9,  9],
             #         [ 0,  9,  8,  ...,  9,  9,  9],
             #         [ 0,  4,  9,  ...,  4,  4,  4],
             #         ...,
             #         [ 0,  4,  0,  ...,  4,  4,  4],
             #         [ 0,  4,  0,  ...,  4,  4,  4],
             #         [ 0, 18,  8,  ..., 18, 18, 18]])
-    # arc_logits_correct = (arc_logits == arc_gt).long() * mask * (rel_gt >= 21).long()
     arc_logits_correct = (arc_logits == arc_gt).long() * mask
     rel_logits_correct = (rel_logits == rel_gt).long() * arc_logits_correct
     arc = arc_logits_correct.sum().item()
     rel = rel_logits_correct.sum().item()
     num = mask.sum().item()
-    # print('(rels_gt >= 21).long().sum(): ', (rel_gt >= 21).long().sum())
-    # print('(rel_logits >= 21).long().sum(): ', (rel_logits >= 21).long().sum())
-    # print('>=', (rel_logits >= 21).long())
-    return {'UAS': float(arc) / float(num), 'LAS': float(rel) / float(num)}
+    return {'UAS': float(arc) / float(num), 'LAS': float(rel) / float(num)}, arc_logits, rel_logits
 
 def inner_inter_uas_las(
         arc_logits: torch.Tensor,
