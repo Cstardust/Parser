@@ -121,7 +121,7 @@ def tensor2dep(heads, rels, words, masks):
                 limit = int(ti)
                 break
         word = words[idx]
-        print('limit', limit, 'word ', word)
+        # print('limit', limit, 'word ', word)
         for jdx, h_jdx in enumerate(head):
             if jdx == 0:
                 continue
@@ -129,11 +129,11 @@ def tensor2dep(heads, rels, words, masks):
                 break
             if mask[jdx] == 0 and jdx != 0:
                 break
-            print('limit idx', limit, 'idx = ', idx, 'jdx = ', jdx, 'len(words)', len(words), 'len(words[idx])', len(words[idx]))
+            # print('limit idx', limit, 'idx = ', idx, 'jdx = ', jdx, 'len(words)', len(words), 'len(words[idx])', len(words[idx]))
             if h_jdx == 0:
                 w_head = 'CLS'
             else:
-                w_head = word[h_jdx - 1]    # head str
+                w_head = word[int(h_jdx) - 1]    # head str
             w_tail = word[jdx - 1]          # tail str
             rel = rels[idx][jdx]        # rel str
             dep = Dependency(jdx, w_tail, h_jdx - 1, rel, w_head, idx)
@@ -173,7 +173,11 @@ class DialogDataset(Dataset):
         self.cfg = cfg
         self.data_file = data_file
         self.inputs, self.offsets, self.heads, self.rels, self.masks, self.wwords, self.ddeps = self.read_data(data_ids)
-        
+    
+    @property
+    def get_words(self):
+        return self.wwords
+    
     def read_data(self, data_ids):
         """
         读取对话数据并进行预处理，返回处理后的输入、偏移量、头部索引、关系和掩码。
@@ -296,12 +300,12 @@ class DialogDataset(Dataset):
         # heads: 依存关系中的头部单词索引. [[tensor],[tensor],[tensor]]
         # rels: 以当前单词作为尾部词语的依赖关系类型. [[tensor],[tensor],[tensor]]
         # masks: 每个句子中每个单词的掩码信息。掩码信息用于指示模型在处理输入时哪些单词是有效的，哪些是填充的。这个列表记录了每个单词的掩码值. [[tensor],[tensor],[tensor]]
-        return inputs, offsets, heads, rels, masks
+        return inputs, offsets, heads, rels, masks, wwords, ddeps
 
     # 返回一篇章对话(上文的一回合)的词的依存关系
     # 一次train_iter迭代器会多次调用__getitem__, 将他们纵向拼接成一个矩阵
     def __getitem__(self, idx):
-        return self.inputs[idx], self.offsets[idx], self.heads[idx], self.rels[idx], self.masks[idx], self.wwords[idx], self.ddeps[idx]
+        return self.inputs[idx], self.offsets[idx], self.heads[idx], self.rels[idx], self.masks[idx]
 #     inputs {'input_ids': tensor([ 101, 2644, 1962, 8024, 4867, 2644, 1921, 1921, 1962, 2552, 2658, 6435,
 #         2644, 4924, 5023, 8024, 3633, 1762,  711, 2644, 4802, 6371, 3634, 1184,
 #         1486, 6418, 1079, 2159,  511,  102,    0,    0,    0,    0,    0,    0,
@@ -440,29 +444,29 @@ class ConllDataset(Dataset):
             wwords.append(word_lst)
 
         # logger.info('0 wwords {}'.format(wwords))
-        for idx, line in enumerate(wwords):
-            logger.info("wwords &&{}: {}&&".format(idx, line))
-            if idx >= 5:
-                break
+        # for idx, line in enumerate(wwords):
+        #     logger.info("wwords &&{}: {}&&".format(idx, line))
+        #     if idx >= 5:
+        #         break
 
-        for idx, deps in enumerate(ddeps):
-            logger.info("ddeps $${}: {}$$".format(idx, deps))
-            if idx >= 5:
-                break
+        # for idx, deps in enumerate(ddeps):
+        #     logger.info("ddeps $${}: {}$$".format(idx, deps))
+        #     if idx >= 5:
+        #         break
         
-        for idx, th in enumerate(heads):
-            logger.info(f"heads ##{idx}: {th}##")
-            if idx >= 5:
-                break
+        # for idx, th in enumerate(heads):
+        #     logger.info(f"heads ##{idx}: {th}##")
+        #     if idx >= 5:
+        #         break
         
-        for idx, th in enumerate(rels):
-            logger.info(f"rels ^^{idx}: {th}^^")
-            if idx >= 5:
-                break
-        for idx, th in enumerate(masks):
-            logger.info(f"masks @@{idx}: {th}@@")
-            if idx >= 5:
-                break
+        # for idx, th in enumerate(rels):
+        #     logger.info(f"rels ^^{idx}: {th}^^")
+        #     if idx >= 5:
+        #         break
+        # for idx, th in enumerate(masks):
+        #     logger.info(f"masks @@{idx}: {th}@@")
+        #     if idx >= 5:
+        #         break
 
         print('heads', type(heads), len(heads))
         print('rels', type(rels), len(rels))

@@ -19,56 +19,56 @@ class DepParser(nn.Module):
             # relation: 表示用于建模关系的隐藏层的大小。在依存句法分析中，关系通常指的是依存弧的标签或类型，即描述连接单词之间关系的类别或属性。MLP 的另一个部分用于对这些关系进行建模，以学习它们之间的特征表示和分类。
         dropout = cfg.dropout
 ##
-        # # 加载预训练的ELECTRA模型作为编码器
-        # self.encoder = AutoModel.from_pretrained(cfg.plm)
-        # self.encoder.resize_token_embeddings(len(cfg.tokenizer))
-        #         # 两个多层感知器（MLP）模型，用于学习依存句法分析中的弧（arc）和头（head）之间的关系
-        # # weight是形状为(out_features, in_features)的矩阵
-        # # bias是长度为out_features的列向量
-        # # nn.LeakyReLU(0.1): 激活函数
-        # # 一般MLP是个固定类别的分类器: si = W * ri+b
-        # # 无法处理不定类别分类，所以作者提出先将ri重新encode为R(k×1)，也就是过一遍MLP：
-        # # h_arc-dep = self.mlp_arc_dep(ri)
-        # self.mlp_arc_dep = NonLinear(in_features=self.encoder.config.hidden_size, 
-        #                              out_features=mlp_arc_size+mlp_rel_size, 
-        #                              activation=nn.LeakyReLU(0.1))
-        # # h_arc-head = self.mlp_arc_head(rj)
-        # self.mlp_arc_head = NonLinear(in_features=self.encoder.config.hidden_size,      # 500
-        #                               out_features=mlp_arc_size+mlp_rel_size,           # 500 + 500 = 1000
-        #                               activation=nn.LeakyReLU(0.1))
-        # # 两个MLP输出的向量的形状都是 (k * 1) (k是out_features)
-
-        # # 这里两个MLP分别是dep专用和head专用。
-        # # k的量级通常更小，压缩encode的另一个好处是去除多余的信息。
-        # # 因为原始ri中含有预测依存弧标签的信息，这对预测head来讲是赘余的。
-
-        # # 特征降维了之后，权值矩阵和偏置也必须做出调整。作者提出用两个矩阵连乘（两次仿射变换biaffine）输入向量:
-        # # s_arc = H_arc-head * U1 * h_arc−dep + H_arc−head * u2 (bias)
-        # # 其中矩阵H_arc-head是d个 token的特征 经过MLP二次encode 出来的特征向量的stack形式(就是d个h_arc-head叠加在一起)
-        # # 上式维度变化是 (d × k)(k × k)(k × 1) + (d × k)(k × 1) = (d × 1)
-        # # 结果是拿到了d个token的分数R(d×1)，同时分类器又不需要维护多个不同大小的权值矩阵（只需一个R(k×k)的矩阵和两个MLP），漂亮地实现了可变类别分类。
-        # # 将bias放入U1, 得 (H_arc-head ⊙ 1) * U-arc * H_arc-head = S_arc
-
-
-## MyLSTM
-        self.plm = AutoModel.from_pretrained(cfg.plm)
-        self.encoder = MyLSTM(
-            input_size = self.plm.config.hidden_size,
-            hidden_size = 384,
-            num_layers = 3,
-            batch_first = True,
-            bidirectional = True,
-            dropout_in = 0.33,
-            dropout_out = 0.33,
-        )
-        self.mlp_arc_dep = NonLinear(in_features=self.encoder.out_size, 
+        # 加载预训练的ELECTRA模型作为编码器
+        self.encoder = AutoModel.from_pretrained(cfg.plm)
+        self.encoder.resize_token_embeddings(len(cfg.tokenizer))
+                # 两个多层感知器（MLP）模型，用于学习依存句法分析中的弧（arc）和头（head）之间的关系
+        # weight是形状为(out_features, in_features)的矩阵
+        # bias是长度为out_features的列向量
+        # nn.LeakyReLU(0.1): 激活函数
+        # 一般MLP是个固定类别的分类器: si = W * ri+b
+        # 无法处理不定类别分类，所以作者提出先将ri重新encode为R(k×1)，也就是过一遍MLP：
+        # h_arc-dep = self.mlp_arc_dep(ri)
+        self.mlp_arc_dep = NonLinear(in_features=self.encoder.config.hidden_size, 
                                      out_features=mlp_arc_size+mlp_rel_size, 
                                      activation=nn.LeakyReLU(0.1))
         # h_arc-head = self.mlp_arc_head(rj)
-        self.mlp_arc_head = NonLinear(in_features=self.encoder.out_size,      # 500
+        self.mlp_arc_head = NonLinear(in_features=self.encoder.config.hidden_size,      # 500
                                       out_features=mlp_arc_size+mlp_rel_size,           # 500 + 500 = 1000
                                       activation=nn.LeakyReLU(0.1))
-## MyLSTM
+        # 两个MLP输出的向量的形状都是 (k * 1) (k是out_features)
+
+        # 这里两个MLP分别是dep专用和head专用。
+        # k的量级通常更小，压缩encode的另一个好处是去除多余的信息。
+        # 因为原始ri中含有预测依存弧标签的信息，这对预测head来讲是赘余的。
+
+        # 特征降维了之后，权值矩阵和偏置也必须做出调整。作者提出用两个矩阵连乘（两次仿射变换biaffine）输入向量:
+        # s_arc = H_arc-head * U1 * h_arc−dep + H_arc−head * u2 (bias)
+        # 其中矩阵H_arc-head是d个 token的特征 经过MLP二次encode 出来的特征向量的stack形式(就是d个h_arc-head叠加在一起)
+        # 上式维度变化是 (d × k)(k × k)(k × 1) + (d × k)(k × 1) = (d × 1)
+        # 结果是拿到了d个token的分数R(d×1)，同时分类器又不需要维护多个不同大小的权值矩阵（只需一个R(k×k)的矩阵和两个MLP），漂亮地实现了可变类别分类。
+        # 将bias放入U1, 得 (H_arc-head ⊙ 1) * U-arc * H_arc-head = S_arc
+
+
+# ## MyLSTM
+#         self.plm = AutoModel.from_pretrained(cfg.plm)
+#         self.encoder = MyLSTM(
+#             input_size = self.plm.config.hidden_size,
+#             hidden_size = 384,
+#             num_layers = 3,
+#             batch_first = True,
+#             bidirectional = True,
+#             dropout_in = 0.33,
+#             dropout_out = 0.33,
+#         )
+#         self.mlp_arc_dep = NonLinear(in_features=self.encoder.out_size, 
+#                                      out_features=mlp_arc_size+mlp_rel_size, 
+#                                      activation=nn.LeakyReLU(0.1))
+#         # h_arc-head = self.mlp_arc_head(rj)
+#         self.mlp_arc_head = NonLinear(in_features=self.encoder.out_size,      # 500
+#                                       out_features=mlp_arc_size+mlp_rel_size,           # 500 + 500 = 1000
+#                                       activation=nn.LeakyReLU(0.1))
+# ## MyLSTM
 
         # # MLP输出的特征向量拆分成多少份
         # self.total_num = int((mlp_arc_size + mlp_rel_size) / 100)
@@ -96,17 +96,15 @@ class DepParser(nn.Module):
         # length长度为32
         
         # 对之前的inputs进行编码
-        # feats, *_ = self.encoder(**inputs, return_dict=False)
+        feats, *_ = self.encoder(**inputs, return_dict=False)
         # print('feat a', feats.size())
-        # tt = feats.pooler_output
-        # print('tt b', feats.size())
         
-        # TRY
-        # print('input_ids', inputs["input_ids"].size())
-        # print('mask', mask.size())
-        feats, *_ = self.plm(**inputs, return_dict=False)
-        # print('feat ', feats.size())
-        # TRY
+        # # TRY
+        # # print('input_ids', inputs["input_ids"].size())
+        # # print('mask', mask.size())
+        # feats, *_ = self.plm(**inputs, return_dict=False)
+        # # print('feat ', feats.size())
+        # # TRY
 
         # batch_size, seq_len (tokenized), plm_hidden_size
         # feats torch.Size([32, 160, 768])
@@ -161,15 +159,15 @@ class DepParser(nn.Module):
         # print('word_cls_feat size', word_cls_feat.size())
         # word_cls_feat size torch.Size([32, 160, 768])
         
-        # TRY
-        word_cls_feat_t, _ = self.encoder(word_cls_feat, masks)
-        word_cls_feat_t = word_cls_feat_t.transpose(0, 1)
-        feats = self.dropout(word_cls_feat_t)
-        # TRY
+        # # TRY
+        # word_cls_feat_t, _ = self.encoder(word_cls_feat, masks)
+        # word_cls_feat_t = word_cls_feat_t.transpose(0, 1)
+        # feats = self.dropout(word_cls_feat_t)
+        # # TRY
 
         # print(word_cls_feat_t.size())
         # print(type(word_cls_feat_t))
-        # feats = self.dropout(word_cls_feat)
+        feats = self.dropout(word_cls_feat)
         # print('feats size', feats.size())
         # feats size torch.Size([32, 160, 768]
 

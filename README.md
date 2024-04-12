@@ -16,4 +16,4 @@ step2: bash train_with_[bert/bge/electra/roberta].sh
 
 v1: loss 加权, 弧0.8, 关系1.2
 v2: BiLSTM用作编码器
-v3: BiLSTM编码器, Adam优化器, plm_lr = 2e-4, drop_out 0.33, weight_decay 0.01
+v3: BiLSTM编码器, Adam优化器, plm_lr = 2e-4, drop_out 0.33, weight_decay 0.v11: train.conll不shuffle. 弧0.8, 关系1.2
