@@ -32,7 +32,7 @@ def parse_args():
     parser.add_argument('--fp16', type=bool, default=True)
     parser.add_argument('--res_dir', type=str, default='results_v11')
     # parser.add_argument('--data_file', type=str, default='./data/test.json')
-    parser.add_argument('--format', type=str, default='json')
+    parser.add_argument('--format', type=str, default='conll')
     parser.add_argument('--visual', type=bool, default=False)
     args = parser.parse_args()
     return args
@@ -53,13 +53,13 @@ def load_conll(data_file: str, train_mode=False):
                     dep = Dependency(toks[0], toks[1], toks[6], toks[7])
                 sentence.append(dep)
 
-if __name__ == 'main':
+if __name__ == '__main__':
 
     ### CONFIG ###
     CFG = parse_args()
     seed_everything(CFG.random_seed)  # 设置随机种子
     ### CONFIG ###
-
+    
     ### LOGGER ###
     logger = logging.getLogger("logger")
     logger.setLevel(logging.INFO)
@@ -86,6 +86,7 @@ if __name__ == 'main':
     tokenizer = AutoTokenizer.from_pretrained(CFG.plm)
     CFG.tokenizer = tokenizer
 
+    logger.info(f"main ./{CFG.res_dir}/test.log");
     if CFG.format == 'conll':
         test_dataset = ConllDataset(CFG, fname = CFG.data_file, load_fn = load_conll, train = False, logger = logger)
         test_dataloader = DataLoader(test_dataset, batch_size = CFG.batch_size)
