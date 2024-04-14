@@ -19,8 +19,8 @@ import sys
 def parse_args():
     parser = argparse.ArgumentParser()
     # parser.add_argument('--dev_file', type=str, default='./data/use_test.conll')
-    parser.add_argument('--data_file', type=str, default='./data/use_test.conll')
-    parser.add_argument('--uid_store', type=str, default='None')    # 与front交互时使用. uid
+    parser.add_argument('--data_file', type=str, default='./data/use_test.conll')               # Server时(存在uid)使用绝对路径
+    parser.add_argument('--uid_store', type=str, default='None')                                # 与front交互时使用. uid
     parser.add_argument('--plm', type=str, default='./plm/bert-base-chinese')
     parser.add_argument('--random_seed', type=int, default=42)
     parser.add_argument('--batch_size', type=int, default=128)
@@ -37,6 +37,7 @@ def parse_args():
     args = parser.parse_args()
     return args
 
+
 def load_conll(data_file: str, train_mode=False):
     sentence: List[Dependency] = []
 
@@ -52,27 +53,38 @@ def load_conll(data_file: str, train_mode=False):
                 else:
                     dep = Dependency(toks[0], toks[1], toks[6], toks[7])
                 sentence.append(dep)
+    # fix missing data bug
+    if sentence :
+        yield sentence
 
-if __name__ == 'main':
+# fix main name bug
+if __name__ == '__main__':
 
     ### CONFIG ###
     CFG = parse_args()
     seed_everything(CFG.random_seed)  # 设置随机种子
     ### CONFIG ###
 
+
     ### LOGGER ###
     logger = logging.getLogger("logger")
     logger.setLevel(logging.INFO)
-    if CFG.uid_store == 'None':
-        fh = logging.FileHandler(filename = f"./{CFG.res_dir}/test.log", mode = 'a')
-        save_file = f"./{CFG.res_dir}/test_save.txt"
-    else:
-        fh = logging.FileHandler(filename = f"./{CFG.res_dir}/{CFG.uid_store}", mode = 'a')
-        save_file = f"./{CFG.res_dir}/{CFG.uid_store}"
+    fh = logging.FileHandler(filename = f"./{CFG.res_dir}/test.log", mode = 'a')
+    save_file = f"./{CFG.res_dir}/test_save.txt"
     logger.addHandler(fh)
     time_now = datetime.datetime.now().isoformat()
     logger.info(f'=-=-=-=-=-=-=-=-={time_now}=-=-=-=-=-=-=-=-=-=')
+    logger.info(vars(CFG))
     print(save_file)
+
+
+    uid_logger = None
+    if CFG.uid_store != 'None':
+        uid_logger = logging.getLogger("uid logger")
+        uid_logger.setLevel(logging.INFO)
+        ufh = logging.FileHandler(filename = f"{CFG.uid_store}", mode = 'w')  # server 指定目录
+        uid_logger.addHandler(ufh)
+
     ### LOGGER ###
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -103,10 +115,11 @@ if __name__ == 'main':
 
 
     words = test_dataset.get_words
-    for idx, line in enumerate(words):
-        logger.info("wwords &&{}: {}&&".format(idx, line))
-        if idx >= 5:
-            break
+    # for idx, line in enumerate(words):
+    #     # logger.info("wwords &&{}: {}&&".format(idx, line))
+    #     # print("wwords &&{}: {}&&".format(idx, line))
+    #     if idx >= 10:
+    #         break
 
     print("start inference")
 
@@ -169,7 +182,7 @@ if __name__ == 'main':
     # arc_logits_ed / heads torch.Size([4241, 160])    # [i,j] 第i批, 以j词作为尾词. 其父节点的位置
     # rel_logits_ed / rels  torch.Size([4241, 160])    # [i,j] 第i批, 以j词作为尾词. 其依存弧的标签
     metrics, arc_logits_ed, rel_logits_ed = uas_las(arc_logit_whole, rel_logit_whole, head_whole, rel_whole, mask_whole)
-    print('metrics 0', metrics)
+    print('metrics ', metrics)
     avg_loss /= len(test_dataloader.dataset)
     results = [CFG.plm, round(avg_loss,4), metrics['UAS'], metrics['LAS']]
     results = [str(x) for x in results]
@@ -179,7 +192,14 @@ if __name__ == 'main':
     print('offset len', offset_len)
     print('head_whole', type(head_whole), len(head_whole))
 
-    if CFG.visual:
+
+    if CFG.visual and uid_logger != "None":
+        uid_logger.info(f"{{UAS: {metrics['UAS']}, LAS: {metrics['LAS']}}}")
+        dep_llist = tensor2dep(head_whole, rel_whole, words, mask_whole)
+        for idx, dep_list in enumerate(dep_llist):
+            for jdx, dep in enumerate(dep_list):
+                uid_logger.info('{}'.format(dep.repr()))
+    elif CFG.visual:
         logger.info(f"**************************Inference {offset_len} visual*********************")
         dep_llist = tensor2dep(head_whole, rel_whole, words, mask_whole)
         # dep_llist 若干句子的依存关系
@@ -190,7 +210,8 @@ if __name__ == 'main':
             for jdx, dep in enumerate(dep_list):
                 logger.info('dep visual {} {}'.format(jdx, dep.repr()))
         logger.info(f"**************************Inference {offset_len} visual*********************")
-
+    
+    logger.info(metrics)
 
 # metrics, _, _ = inner_inter_uas_las(arc_logit_whole, rel_logit_whole, head_whole, rel_whole,
 #                   mask_whole)
