@@ -13,10 +13,12 @@ from trainer import BasicTrainer
 from utils import arc_rel_loss, uas_las, seed_everything
 import argparse
 import os
+import sys
 
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--train_file', type=str, default='./data/train.conll')
+    parser.add_argument('--val_file', type=str, default='./data/val.conll')
     parser.add_argument('--plm', type=str, default='./plm/chinese-electra-180g-base-discriminator')
     parser.add_argument('--random_seed', type=int, default=42)
     parser.add_argument('--num_epochs', type=int, default=15)
@@ -28,7 +30,7 @@ def parse_args():
     parser.add_argument('--grad_clip', type=float, default=3)    # 2
     parser.add_argument('--scheduler', type=str, default='linear')
     parser.add_argument('--warmup_ratio', type=float, default=0.1)
-    parser.add_argument('--num_early_stop', type=int, default=3)
+    parser.add_argument('--num_early_stop', type=int, default=5)
     parser.add_argument('--max_length', type=int, default=160)
     parser.add_argument('--hidden_size', type=int, default=400)
     parser.add_argument('--num_labels', type=int, default=40)
@@ -36,41 +38,10 @@ def parse_args():
     parser.add_argument('--cuda', type=bool, default=True)
     parser.add_argument('--fp16', type=bool, default=True)
     parser.add_argument('--res_dir', type=str, default='results_v0')
+    parser.add_argument('--eval_strategy', type=str, default='epoch')   # step
+    parser.add_argument('--eval_every', type=int, default=800)
     args = parser.parse_args()
     return args
-
-
-CFG = parse_args()
-
-if not os.path.exists(CFG.res_dir):
-    os.makedirs(CFG.res_dir)
-
-print(CFG.res_dir)
-
-pt_output_file = f'./{CFG.res_dir}/{CFG.plm.split("/")[-1].replace("-","_")}_base_par_new.pt'
-
-print(pt_output_file)
-
-logger = logging.getLogger("logger")
-logger.setLevel(logging.INFO)
-fh = logging.FileHandler(filename=f"./{CFG.res_dir}/train.log", mode='a')
-logger.addHandler(fh)
-
-time_now = datetime.datetime.now().isoformat()
-print(time_now)
-logger.info(f'=-=-=-=-=-=-=-=-={time_now}=-=-=-=-=-=-=-=-=-=')
-
-seed_everything(CFG.random_seed)
-
-if torch.cuda.is_available() and CFG.cuda:
-    device = torch.device('cuda')
-else:
-    device = torch.device('cpu')
-print(f'Using device: {device}')
-
-tokenizer = AutoTokenizer.from_pretrained(CFG.plm)
-CFG.__dict__["tokenizer"] = tokenizer
-
 
 def load_conll(data_file: str, train_mode=True):
     sentence: List[Dependency] = []
@@ -104,23 +75,69 @@ def load_conll_with_aug(data_file: str, train_mode=True):
     f1.close()
     f2.close()
 
+if __name__ == '__main__':
 
-train_dataset = ConllDataset(CFG, load_fn=load_conll_with_aug, train=True)
-train_iter = DataLoader(train_dataset, batch_size=CFG.batch_size, shuffle=True)
+    CFG = parse_args()
 
-model = DepParser(CFG)
-model = model.cuda()
+    if not os.path.exists(CFG.res_dir):
+        os.makedirs(CFG.res_dir)
 
-trainer = BasicTrainer(model=model,
-                       trainset_size=len(train_dataset),
-                       loss_fn=arc_rel_loss,
-                       metrics_fn=uas_las,
-                       logger=logger,
-                       config=CFG)
+    print(CFG.res_dir)
 
-best_res, best_state_dict = trainer.train(model=model,
-                                          train_iter=train_iter,
-                                          val_iter=None)
+    pt_output_file = f'./{CFG.res_dir}/{CFG.plm.split("/")[-1].replace("-","_")}_base_par_new.pt'
 
-pt_output_file = f'./{CFG.res_dir}/{CFG.plm.split("/")[-1].replace("-","_")}_base_par_new.pt'
-torch.save(best_state_dict, pt_output_file)
+    print(pt_output_file)
+
+    logger = logging.getLogger("logger")
+    logger.setLevel(logging.INFO)
+    fh = logging.FileHandler(filename=f"./{CFG.res_dir}/train.log", mode='a')
+    logger.addHandler(fh)
+
+    time_now = datetime.datetime.now().isoformat()
+    print(time_now)
+    logger.info(f'=-=-=-=-=-=-=-=-={time_now}=-=-=-=-=-=-=-=-=-=')
+
+    seed_everything(CFG.random_seed)
+
+    if torch.cuda.is_available() and CFG.cuda:
+        device = torch.device('cuda')
+    else:
+        device = torch.device('cpu')
+    print(f'Using device: {device}')
+
+    tokenizer = AutoTokenizer.from_pretrained(CFG.plm)
+    CFG.__dict__["tokenizer"] = tokenizer
+
+
+    train_iter = None
+    val_iter = None
+
+    print('train_file', CFG.train_file)
+    train_dataset = ConllDataset(CFG, fname=CFG.train_file, load_fn=load_conll_with_aug, train=True, logger=logger)
+    train_iter = DataLoader(train_dataset, batch_size=CFG.batch_size)
+
+    print('val_file', CFG.val_file)
+    val_dataset = ConllDataset(CFG, fname=CFG.val_file, load_fn=load_conll_with_aug, train=True, logger=logger)
+    val_iter = DataLoader(val_dataset, batch_size=CFG.batch_size)
+
+    model = DepParser(CFG)
+    model = model.cuda()
+
+    trainer = BasicTrainer(model=model,
+                           trainset_size=len(train_dataset),
+                           loss_fn=arc_rel_loss,
+                           metrics_fn=uas_las,
+                           logger=logger,
+                           config=CFG)
+
+    best_res, best_state_dict = trainer.train(model=model,
+                                              train_iter=train_iter,
+                                              val_iter=val_iter)
+    print(f'====================={time_now} best_res {best_res}=====================')
+    logger.info(f'{time_now} best_res {best_res}')
+    time_now = datetime.datetime.now().isoformat()
+
+    pt_output_file = f'./{CFG.res_dir}/{CFG.plm.split("/")[-1].replace("-","_")}_base_par_new.pt'
+    torch.save(best_state_dict, pt_output_file)
+
+    sys.exit()

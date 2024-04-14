@@ -79,34 +79,6 @@ def arc_rel_loss(
     return arc_loss * wa + rel_loss * wb
 
 
-# def arc_rel_loss_(arc_logits: torch.Tensor,
-#                  rel_logits: torch.Tensor,
-#                  arc_gt: torch.Tensor,  # ground truth
-#                  rel_gt: torch.Tensor,
-#                  mask: torch.Tensor) -> torch.Tensor:
-#     flip_mask = mask.eq(0)
-
-#     def one_loss(logits, gt):
-#         tmp1 = logits.view(-1, logits.size(-1))
-#         tmp2 = gt.masked_fill(flip_mask, -1).view(-1)
-#         return F.cross_entropy(tmp1, tmp2, ignore_index=-1)
-
-#     def loss_with_prob(logits, gt):
-#         logits = logits.view(-1, logits.size(-1))
-#         gt = gt.view(-1, gt.size(-1))
-#         loss_fn = nn.CrossEntropyLoss(reduction='none')
-#         loss = loss_fn(logits, gt)  # batch_size, seq_len
-#         loss = loss.view(mask.size())
-#         loss *= mask
-#         loss = loss.sum(-1)
-#         return loss.mean()
-
-#     arc_loss = one_loss(arc_logits, arc_gt)
-#     rel_loss = loss_with_prob(rel_logits, rel_gt)
-
-#     return arc_loss + rel_loss
-
-
 def uas_las(
         arc_logits: torch.Tensor,
         rel_logits: torch.Tensor,
@@ -298,3 +270,32 @@ def seed_everything(seed):
     torch.cuda.manual_seed(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
+
+
+
+# def arc_rel_loss_(arc_logits: torch.Tensor,
+#                  rel_logits: torch.Tensor,
+#                  arc_gt: torch.Tensor,  # ground truth
+#                  rel_gt: torch.Tensor,
+#                  mask: torch.Tensor) -> torch.Tensor:
+#     flip_mask = mask.eq(0)
+
+#     def one_loss(logits, gt):
+#         tmp1 = logits.view(-1, logits.size(-1))
+#         tmp2 = gt.masked_fill(flip_mask, -1).view(-1)
+#         return F.cross_entropy(tmp1, tmp2, ignore_index=-1)
+
+#     def loss_with_prob(logits, gt):
+#         logits = logits.view(-1, logits.size(-1))
+#         gt = gt.view(-1, gt.size(-1))
+#         loss_fn = nn.CrossEntropyLoss(reduction='none')
+#         loss = loss_fn(logits, gt)  # batch_size, seq_len
+#         loss = loss.view(mask.size())
+#         loss *= mask
+#         loss = loss.sum(-1)
+#         return loss.mean()
+
+#     arc_loss = one_loss(arc_logits, arc_gt)
+#     rel_loss = loss_with_prob(rel_logits, rel_gt)
+
+#     return arc_loss + rel_loss

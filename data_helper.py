@@ -161,7 +161,7 @@ def load_conll(data_file: str, train_mode=False):
                 sentence.append(dep)
 
 class DialogDataset(Dataset):
-    def __init__(self, cfg, data_file, data_ids):
+    def __init__(self, cfg, data_file, data_ids, logger=None):
         """
         初始化函数，创建 DialogDataset 类的实例。
 
@@ -172,6 +172,7 @@ class DialogDataset(Dataset):
         """
         self.cfg = cfg
         self.data_file = data_file
+        self.logger = logger
         self.inputs, self.offsets, self.heads, self.rels, self.masks, self.wwords, self.ddeps = self.read_data(data_ids)
     
     @property
@@ -366,11 +367,13 @@ class DialogDataset(Dataset):
 
 
 class ConllDataset(Dataset):
-    def __init__(self, cfg, load_fn, train):
+    def __init__(self, cfg, fname, load_fn, train, logger=None):
         self.train = train
         self.cfg = cfg
+        self.fname = fname
         self.tokenizer = cfg.tokenizer
         self.load_fn = load_fn
+        self.logger = logger
         # self.inputs, self.offsets, self.heads, self.rels, self.masks, self.wwords, self.ddeps = self.read_data()
         # self.inputs, self.offsets, self.heads, self.rels, self.masks, self.wwords = self.read_data()
         self.inputs, self.offsets, self.heads, self.rels, self.masks, self.wwords, self.ddeps = self.read_data()
@@ -380,15 +383,14 @@ class ConllDataset(Dataset):
         return self.wwords
 
     def read_data(self):
-        from visualization import logger
-
-        logger.info("=================read data {}=================".format(self.cfg.dev_file))
+        self.logger.info("=================read data {}=================".format(self.fname))
         inputs, offsets = [], []
         tags, heads, rels, masks = [], [], [], []
         wwords = []
         ddeps = []
 
-        file = self.cfg.train_file if self.train else self.cfg.dev_file
+        # file = self.cfg.train_file if self.train else self.cfg.data_file
+        file = self.fname
         for deps in tqdm(self.load_fn(file, self.train)):
             seq_len = len(deps)
             

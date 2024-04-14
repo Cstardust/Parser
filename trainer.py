@@ -33,13 +33,13 @@ class BasicTrainer():
 
         # # 需要给优化器提供网络的所有参数
         # # 训练的时候就是通过这个Adam优化器来更新参数
-        # self.optim = AdamW([{'params': plm_params, 'lr':config.plm_lr}, 
-        #                     {'params': head_params, 'lr':config.head_lr}], 
-        #                     lr=config.plm_lr,
-        #                     weight_decay=config.weight_decay
-        #                   )
+        self.optim = AdamW([{'params': plm_params, 'lr':config.plm_lr}, 
+                            {'params': head_params, 'lr':config.head_lr}], 
+                            lr=config.plm_lr,
+                            weight_decay=config.weight_decay
+                          )
         # TRY
-        self.optim = Adam(model.parameters(), lr=config.plm_lr, weight_decay=config.weight_decay)
+        # self.optim = Adam(model.parameters(), lr=config.plm_lr, weight_decay=config.weight_decay)
         # TRY
         # 计算训练步数和预热步数，用于学习率调度
         training_step = int(config.num_epochs * (trainset_size / config.batch_size))
@@ -72,69 +72,14 @@ class BasicTrainer():
         best_state_dict = None
         step = 0
 
-        print(f'start {self.config.num_epochs} train')
+        self.logger.info(f'start {self.config.num_epochs} train')
         # 多轮训练
         for epoch in tqdm(range(self.config.num_epochs)):
+            self.logger.info(f"debug epoch {epoch} step {step}")
             for batch in train_iter:
+                # self.logger.info(f"debug epoch {epoch} step {step}")
                 # 一次train_iter迭代器会多次调用__getitem__, 将他们纵向拼接成一个矩阵 
                 inputs, offsets, heads, rels, masks = batch
-                        # inputs: 输入的句子拆分成词, 并得到的所有词的编码：
-            # [ {[input_ids],[token_type_ids],[attention_mask]}, {[input_ids],[token_type_ids],[attention_mask]}]
-            # "input_ids": 对于word_lst的编码.
-            # "token_type_ids": 第一个句子和特殊符号的位置是0. 第二个句子位置是1.
-            # "attention_mask": pad的位置是0, 其他位置是1
-        # offsets: 包含了每个句子中单词的偏移量. [[tensor],[tensor],[tensor]]
-        # heads: 依存关系中的头部单词索引. [[tensor],[tensor],[tensor]]
-        # rels: 以当前单词作为尾部词语的依赖关系类型. [[tensor],[tensor],[tensor]]
-        # masks: 每个句子中每个单词的掩码信息。掩码信息用于指示模型在处理输入时哪些单词是有效的，哪些是填充的。这个列表记录了每个单词的掩码值. [[tensor],[tensor],[tensor]]
-                # 也就是说, 下面是多个篇章对话的输入  
-        #  inputs {'input_ids': tensor([[ 101, 2644, 1962,  ...,    0,    0,    0],
-        # [ 101, 1305, 3221,  ...,    0,    0,    0],
-        # [ 101, 2644, 2575,  ...,    0,    0,    0],
-        # ...,
-        # [ 101, 6929, 6821,  ...,    0,    0,    0],
-        # [ 101, 2769, 3221,  ...,    0,    0,    0],
-        # [ 101,  683, 1447,  ...,    0,    0,    0]]), 'token_type_ids': tensor([[0, 0, 0,  ..., 0, 0, 0],
-        # [0, 0, 0,  ..., 0, 0, 0],
-        # [0, 0, 0,  ..., 0, 0, 0],
-        # ...,
-        # [0, 0, 0,  ..., 0, 0, 0],
-        # [0, 0, 0,  ..., 0, 0, 0],
-        # [0, 0, 0,  ..., 0, 0, 0]]), 'attention_mask': tensor([[1, 1, 1,  ..., 0, 0, 0],
-        # [1, 1, 1,  ..., 0, 0, 0],
-        # [1, 1, 1,  ..., 0, 0, 0],
-        # ...,
-        # [1, 1, 1,  ..., 0, 0, 0],
-        # [1, 1, 1,  ..., 0, 0, 0],
-        # [1, 1, 1,  ..., 0, 0, 0]])}
-        # offsets tensor([[0, 1, 2,  ..., 0, 0, 0],
-        #         [0, 2, 4,  ..., 0, 0, 0],
-        #         [0, 1, 3,  ..., 0, 0, 0],
-        #         ...,
-        #         [0, 1, 3,  ..., 0, 0, 0],
-        #         [0, 1, 2,  ..., 0, 0, 0],
-        #         [0, 2, 3,  ..., 0, 0, 0]])
-        # heads tensor([[ 0,  2,  4,  ...,  0,  0,  0],
-        #         [ 0,  0,  3,  ...,  0,  0,  0],
-        #         [ 0,  2,  4,  ...,  0,  0,  0],
-        #         ...,
-        #         [ 0,  3,  3,  ...,  0,  0,  0],
-        #         [ 0,  2,  0,  ...,  0,  0,  0],
-        #         [ 0, 10, 10,  ...,  0,  0,  0]])
-        # rels tensor([[ 0,  4, 27,  ...,  0,  0,  0],
-        #         [ 0,  0,  9,  ...,  0,  0,  0],
-        #         [ 0,  4,  4,  ...,  0,  0,  0],
-        #         ...,
-        #         [ 0,  9,  9,  ...,  0,  0,  0],
-        #         [ 0,  4,  0,  ...,  0,  0,  0],
-        #         [ 0,  4,  9,  ...,  0,  0,  0]])
-        # masks tensor([[0, 1, 1,  ..., 0, 0, 0],
-        #         [0, 1, 1,  ..., 0, 0, 0],
-        #         [0, 1, 1,  ..., 0, 0, 0],
-        #         ...,
-        #         [0, 1, 1,  ..., 0, 0, 0],
-        #         [0, 1, 1,  ..., 0, 0, 0],
-        #         [0, 1, 1,  ..., 0, 0, 0]])
                 if self.config.cuda and torch.cuda.is_available():
                     inputs_cuda = {}
                     for key, value in inputs.items():
@@ -168,14 +113,16 @@ class BasicTrainer():
                 # 更新学习率
                 self.optim_schedule.step()
                 # 计算 UAS 和 LAS
-                metrics = self.metrics_fn(arc_logits, rel_logits, heads, rels, masks)
+                metrics, _, _ = self.metrics_fn(arc_logits, rel_logits, heads, rels, masks)
 
                 if (step) % self.print_every == 0:
                     self.logger.info(f"--epoch {epoch}, step {step}, loss {loss}")
                     self.logger.info(f"  {metrics}")
     
-                # 间隔一定step, 进行评估
+                # 间隔一定step, 在验证集上进行评估
                 if val_iter is not None and self.config.eval_strategy == 'step' and (step + 1) % self.config.eval_every == 0:
+                    print(f'config.eval_strategy == step.!!! epoch {epoch} step {step}')
+                    self.logger.info("!!!!!!!!! config.eval_strategy == step.!!! epoch {} step {} !!!!!! ".format(epoch, str(step)))
                     avg_loss, uas, las = self.eval(model, val_iter)
                     res = [avg_loss, uas, las]
                     # 以LAS评判是否是最好结果
@@ -196,6 +143,8 @@ class BasicTrainer():
             
             # 每epoch进行一次评估
             if val_iter is not None and self.config.eval_strategy == 'epoch':
+                print(f'config.eval_strategy == epoch.!!! epoch {epoch} step {step}')
+                self.logger.info("!!!!!!!!! config.eval_strategy == epoch.!!! epoch {} step {} !!!!!! ".format(epoch, str(step)))
                 avg_loss, uas, las = self.eval(model, val_iter)
                 res = [avg_loss, uas, las]
                 if las > best_res[2]:  # las
@@ -263,7 +212,7 @@ class BasicTrainer():
             avg_loss += loss.item() * len(heads)  # times the batch size of data. 乘以当前批次的数据量
 
         # 计算对于整个验证集的UAS和LAS
-        metrics = self.metrics_fn(arc_logit_whole, rel_logit_whole, head_whole, rel_whole, mask_whole)
+        metrics, _, _ = self.metrics_fn(arc_logit_whole, rel_logit_whole, head_whole, rel_whole, mask_whole)
         uas, las = metrics['UAS'], metrics['LAS']
         # 平均损失
         avg_loss /= len(eval_iter.dataset)  # type: ignore
@@ -286,3 +235,65 @@ class BasicTrainer():
         saves = [str(x) for x in saves]
         with open(save_file, "a+") as f:
             f.write(",".join(saves) + "\n")  # type: ignore
+
+
+
+
+                    # inputs, offsets, heads, rels, masks = batch
+            # inputs: 输入的句子拆分成词, 并得到的所有词的编码：
+            # [ {[input_ids],[token_type_ids],[attention_mask]}, {[input_ids],[token_type_ids],[attention_mask]}]
+            # "input_ids": 对于word_lst的编码.
+            # "token_type_ids": 第一个句子和特殊符号的位置是0. 第二个句子位置是1.
+            # "attention_mask": pad的位置是0, 其他位置是1
+        # offsets: 包含了每个句子中单词的偏移量. [[tensor],[tensor],[tensor]]
+        # heads: 依存关系中的头部单词索引. [[tensor],[tensor],[tensor]]
+        # rels: 以当前单词作为尾部词语的依赖关系类型. [[tensor],[tensor],[tensor]]
+        # masks: 每个句子中每个单词的掩码信息。掩码信息用于指示模型在处理输入时哪些单词是有效的，哪些是填充的。这个列表记录了每个单词的掩码值. [[tensor],[tensor],[tensor]]
+                # 也就是说, 下面是多个篇章对话的输入  
+        #  inputs {'input_ids': tensor([[ 101, 2644, 1962,  ...,    0,    0,    0],
+        # [ 101, 1305, 3221,  ...,    0,    0,    0],
+        # [ 101, 2644, 2575,  ...,    0,    0,    0],
+        # ...,
+        # [ 101, 6929, 6821,  ...,    0,    0,    0],
+        # [ 101, 2769, 3221,  ...,    0,    0,    0],
+        # [ 101,  683, 1447,  ...,    0,    0,    0]]), 'token_type_ids': tensor([[0, 0, 0,  ..., 0, 0, 0],
+        # [0, 0, 0,  ..., 0, 0, 0],
+        # [0, 0, 0,  ..., 0, 0, 0],
+        # ...,
+        # [0, 0, 0,  ..., 0, 0, 0],
+        # [0, 0, 0,  ..., 0, 0, 0],
+        # [0, 0, 0,  ..., 0, 0, 0]]), 'attention_mask': tensor([[1, 1, 1,  ..., 0, 0, 0],
+        # [1, 1, 1,  ..., 0, 0, 0],
+        # [1, 1, 1,  ..., 0, 0, 0],
+        # ...,
+        # [1, 1, 1,  ..., 0, 0, 0],
+        # [1, 1, 1,  ..., 0, 0, 0],
+        # [1, 1, 1,  ..., 0, 0, 0]])}
+        # offsets tensor([[0, 1, 2,  ..., 0, 0, 0],
+        #         [0, 2, 4,  ..., 0, 0, 0],
+        #         [0, 1, 3,  ..., 0, 0, 0],
+        #         ...,
+        #         [0, 1, 3,  ..., 0, 0, 0],
+        #         [0, 1, 2,  ..., 0, 0, 0],
+        #         [0, 2, 3,  ..., 0, 0, 0]])
+        # heads tensor([[ 0,  2,  4,  ...,  0,  0,  0],
+        #         [ 0,  0,  3,  ...,  0,  0,  0],
+        #         [ 0,  2,  4,  ...,  0,  0,  0],
+        #         ...,
+        #         [ 0,  3,  3,  ...,  0,  0,  0],
+        #         [ 0,  2,  0,  ...,  0,  0,  0],
+        #         [ 0, 10, 10,  ...,  0,  0,  0]])
+        # rels tensor([[ 0,  4, 27,  ...,  0,  0,  0],
+        #         [ 0,  0,  9,  ...,  0,  0,  0],
+        #         [ 0,  4,  4,  ...,  0,  0,  0],
+        #         ...,
+        #         [ 0,  9,  9,  ...,  0,  0,  0],
+        #         [ 0,  4,  0,  ...,  0,  0,  0],
+        #         [ 0,  4,  9,  ...,  0,  0,  0]])
+        # masks tensor([[0, 1, 1,  ..., 0, 0, 0],
+        #         [0, 1, 1,  ..., 0, 0, 0],
+        #         [0, 1, 1,  ..., 0, 0, 0],
+        #         ...,
+        #         [0, 1, 1,  ..., 0, 0, 0],
+        #         [0, 1, 1,  ..., 0, 0, 0],
+        #         [0, 1, 1,  ..., 0, 0, 0]])
