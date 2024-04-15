@@ -28,7 +28,7 @@ class Dependency():
         if self.hword is None:
             return f"({self.word}, {self.head}, {self.rel})"
         else:
-            return f"({self.word} --> {self.hword}: {self.rel} {id2rel[int(self.rel)]})"
+            return f"({self.word} --> {self.hword}: {id2rel[int(self.rel)]})"
     
     def repr(self):
         return self.__repr__()
